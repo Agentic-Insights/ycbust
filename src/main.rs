@@ -25,6 +25,10 @@ struct Args {
     /// Overwrite existing files
     #[arg(long, default_value_t = false)]
     overwrite: bool,
+
+    /// Download all file types (including berkeley_processed, etc.)
+    #[arg(long, default_value_t = false)]
+    full: bool,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
@@ -81,10 +85,15 @@ async fn main() -> Result<()> {
     fs::create_dir_all(&args.output_dir).context("Failed to create output directory")?;
 
     // Files to download for each object
-    // Based on reference: ["berkeley_processed", "google_16k"]
-    let file_types = vec!["berkeley_processed", "google_16k"];
+    // Default: only google_16k (best for rendering/sim)
+    // Full: include berkeley_processed (and others if added later)
+    let file_types = if args.full {
+        vec!["berkeley_processed", "google_16k"]
+    } else {
+        vec!["google_16k"]
+    };
 
-    for object in selected_objects {
+    for object in &selected_objects {
         for file_type in &file_types {
             let url = get_tgz_url(&object, file_type);
             
@@ -107,7 +116,16 @@ async fn main() -> Result<()> {
         }
     }
 
-    println!("Done!");
+    println!("\nDownload complete!");
+    println!("Files are located in: {}", args.output_dir.display());
+    if let Some(first_obj) = selected_objects.first() {
+        println!("Example path for Bevy/rendering:");
+        println!(
+            "  {}/{}/google_16k/textured.obj",
+            args.output_dir.display(), first_obj
+        );
+    }
+
     Ok(())
 }
 
@@ -130,13 +148,14 @@ fn get_tgz_url(object: &str, file_type: &str) -> String {
 async fn download_file(client: &Client, url: &str, dest_path: &Path) -> Result<()> {
     let res = client.get(url).send().await.context("Failed to send request")?;
     let total_size = res.content_length().unwrap_or(0);
+    let filename = dest_path.file_name().unwrap().to_string_lossy().to_string();
+    println!("Downloading {}", filename);
 
     let pb = ProgressBar::new(total_size);
     pb.set_style(ProgressStyle::default_bar()
         .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
         .unwrap()
         .progress_chars("#>-"));
-    pb.set_message(format!("Downloading {}", dest_path.file_name().unwrap().to_string_lossy()));
 
     let mut file = File::create(dest_path).context("Failed to create file")?;
     let mut stream = res.bytes_stream();
@@ -147,7 +166,7 @@ async fn download_file(client: &Client, url: &str, dest_path: &Path) -> Result<(
         pb.inc(chunk.len() as u64);
     }
 
-    pb.finish_with_message("Downloaded");
+    pb.finish_with_message("Done");
     Ok(())
 }
 
