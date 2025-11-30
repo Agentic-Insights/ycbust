@@ -159,14 +159,19 @@ async fn download_file(client: &Client, url: &str, dest_path: &Path) -> Result<(
         .await
         .context("Failed to send request")?;
     let total_size = res.content_length().unwrap_or(0);
-    let filename = dest_path.file_name().unwrap().to_string_lossy().to_string();
+    let filename = dest_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
     println!("Downloading {}", filename);
 
     let pb = ProgressBar::new(total_size);
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-        .unwrap()
-        .progress_chars("#>-"));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+            .expect("Invalid progress bar template - this is a bug")
+            .progress_chars("#>-"),
+    );
 
     let mut file = File::create(dest_path).context("Failed to create file")?;
     let mut stream = res.bytes_stream();
@@ -186,7 +191,100 @@ fn extract_tgz(tgz_path: &Path, output_dir: &Path) -> Result<()> {
     let tar_gz = File::open(tgz_path)?;
     let tar = flate2::read::GzDecoder::new(tar_gz);
     let mut archive = tar::Archive::new(tar);
-    archive.unpack(output_dir)?;
+
+    // Validate and extract each entry to prevent path traversal attacks
+    for entry in archive
+        .entries()
+        .context("Failed to read archive entries")?
+    {
+        let mut entry = entry.context("Failed to read archive entry")?;
+        let path = entry
+            .path()
+            .context("Failed to get entry path")?
+            .to_path_buf();
+
+        // Reject paths with parent directory components (..)
+        if path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            anyhow::bail!(
+                "Archive contains invalid path with '..': {}",
+                path.display()
+            );
+        }
+
+        let dest = output_dir.join(&path);
+
+        // Ensure destination is within output_dir (canonicalization check)
+        let canonical_output = output_dir
+            .canonicalize()
+            .unwrap_or_else(|_| output_dir.to_path_buf());
+        if let Ok(canonical_dest) = dest.canonicalize() {
+            if !canonical_dest.starts_with(&canonical_output) {
+                anyhow::bail!(
+                    "Archive tries to write outside output directory: {}",
+                    dest.display()
+                );
+            }
+        }
+
+        entry
+            .unpack(&dest)
+            .with_context(|| format!("Failed to extract: {}", path.display()))?;
+    }
+
     fs::remove_file(tgz_path)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_tgz_url_google_16k() {
+        let url = get_tgz_url("003_cracker_box", "google_16k");
+        assert_eq!(
+            url,
+            "http://ycb-benchmarks.s3-website-us-east-1.amazonaws.com/data/google/003_cracker_box_google_16k.tgz"
+        );
+    }
+
+    #[test]
+    fn test_get_tgz_url_berkeley_processed() {
+        let url = get_tgz_url("003_cracker_box", "berkeley_processed");
+        assert_eq!(
+            url,
+            "http://ycb-benchmarks.s3-website-us-east-1.amazonaws.com/data/berkeley/003_cracker_box/003_cracker_box_berkeley_meshes.tgz"
+        );
+    }
+
+    #[test]
+    fn test_get_tgz_url_berkeley_rgbd() {
+        let url = get_tgz_url("003_cracker_box", "berkeley_rgbd");
+        assert_eq!(
+            url,
+            "http://ycb-benchmarks.s3-website-us-east-1.amazonaws.com/data/berkeley/003_cracker_box/003_cracker_box_berkeley_rgbd.tgz"
+        );
+    }
+
+    #[test]
+    fn test_get_tgz_url_berkeley_rgb_highres() {
+        let url = get_tgz_url("003_cracker_box", "berkeley_rgb_highres");
+        assert_eq!(
+            url,
+            "http://ycb-benchmarks.s3-website-us-east-1.amazonaws.com/data/berkeley/003_cracker_box/003_cracker_box_berkeley_rgb_highres.tgz"
+        );
+    }
+
+    #[test]
+    fn test_get_tgz_url_different_objects() {
+        // Test with different object IDs
+        let url1 = get_tgz_url("004_sugar_box", "google_16k");
+        assert!(url1.contains("004_sugar_box"));
+
+        let url2 = get_tgz_url("005_tomato_soup_can", "google_16k");
+        assert!(url2.contains("005_tomato_soup_can"));
+    }
 }
