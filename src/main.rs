@@ -53,16 +53,12 @@ async fn main() -> Result<()> {
 
     println!("Fetching object list...");
     let objects = fetch_objects(&client).await?;
-    
+
     let selected_objects = match args.subset {
-        Subset::Representative => vec![
-            "003_cracker_box",
-            "004_sugar_box",
-            "005_tomato_soup_can",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect(),
+        Subset::Representative => vec!["003_cracker_box", "004_sugar_box", "005_tomato_soup_can"]
+            .into_iter()
+            .map(String::from)
+            .collect(),
         Subset::Ten => vec![
             "003_cracker_box",
             "004_sugar_box",
@@ -81,7 +77,11 @@ async fn main() -> Result<()> {
         Subset::All => objects,
     };
 
-    println!("Downloading {} objects to {:?}", selected_objects.len(), args.output_dir);
+    println!(
+        "Downloading {} objects to {:?}",
+        selected_objects.len(),
+        args.output_dir
+    );
     fs::create_dir_all(&args.output_dir).context("Failed to create output directory")?;
 
     // Files to download for each object
@@ -95,8 +95,8 @@ async fn main() -> Result<()> {
 
     for object in &selected_objects {
         for file_type in &file_types {
-            let url = get_tgz_url(&object, file_type);
-            
+            let url = get_tgz_url(object, file_type);
+
             // Check if URL exists (HEAD request)
             let response = client.head(&url).send().await?;
             if !response.status().is_success() {
@@ -122,7 +122,8 @@ async fn main() -> Result<()> {
         println!("Example path for Bevy/rendering:");
         println!(
             "  {}/{}/google_16k/textured.obj",
-            args.output_dir.display(), first_obj
+            args.output_dir.display(),
+            first_obj
         );
     }
 
@@ -137,16 +138,26 @@ async fn fetch_objects(client: &Client) -> Result<Vec<String>> {
 
 fn get_tgz_url(object: &str, file_type: &str) -> String {
     if file_type == "berkeley_rgbd" || file_type == "berkeley_rgb_highres" {
-        format!("{}berkeley/{}/{}_{}.tgz", BASE_URL, object, object, file_type)
+        format!(
+            "{}berkeley/{}/{}_{}.tgz",
+            BASE_URL, object, object, file_type
+        )
     } else if file_type == "berkeley_processed" {
-        format!("{}berkeley/{}/{}_berkeley_meshes.tgz", BASE_URL, object, object)
+        format!(
+            "{}berkeley/{}/{}_berkeley_meshes.tgz",
+            BASE_URL, object, object
+        )
     } else {
         format!("{}google/{}_{}.tgz", BASE_URL, object, file_type)
     }
 }
 
 async fn download_file(client: &Client, url: &str, dest_path: &Path) -> Result<()> {
-    let res = client.get(url).send().await.context("Failed to send request")?;
+    let res = client
+        .get(url)
+        .send()
+        .await
+        .context("Failed to send request")?;
     let total_size = res.content_length().unwrap_or(0);
     let filename = dest_path.file_name().unwrap().to_string_lossy().to_string();
     println!("Downloading {}", filename);
@@ -162,7 +173,8 @@ async fn download_file(client: &Client, url: &str, dest_path: &Path) -> Result<(
 
     while let Some(item) = stream.next().await {
         let chunk = item.context("Error while downloading chunk")?;
-        file.write_all(&chunk).context("Error while writing to file")?;
+        file.write_all(&chunk)
+            .context("Error while writing to file")?;
         pb.inc(chunk.len() as u64);
     }
 
