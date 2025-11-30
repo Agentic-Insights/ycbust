@@ -2,6 +2,12 @@
 name = "ycbust"
 version = "0.1.0"
 edition = "2021"
+description = "CLI tool for downloading and extracting the YCB Object and Model Set for 3D rendering and simulation"
+license = "MIT"
+repository = "https://github.com/killerapp/ycbust"
+readme = "README.md"
+keywords = ["ycb", "dataset", "3d", "robotics", "simulation"]
+categories = ["command-line-utilities", "science::robotics"]
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
