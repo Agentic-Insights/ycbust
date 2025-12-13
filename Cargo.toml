@@ -1,6 +1,6 @@
 [package]
 name = "ycbust"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "CLI tool for downloading and extracting the YCB Object and Model Set for 3D rendering and simulation"
 license = "MIT"
