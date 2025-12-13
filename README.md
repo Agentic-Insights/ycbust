@@ -1,6 +1,21 @@
 # YCB Downloader (ycbust)
 
+[![Crates.io](https://img.shields.io/crates/v/ycbust.svg)](https://crates.io/crates/ycbust)
+[![GitHub release](https://img.shields.io/github/v/release/killerapp/ycbust)](https://github.com/killerapp/ycbust/releases)
+
 A Rust CLI tool for efficiently downloading and extracting the YCB Object and Model Set. Designed for quick setup of 3D rendering and simulation environments (e.g., Bevy, Rapier).
+
+## Installation
+
+### From crates.io
+
+```bash
+cargo install ycbust
+```
+
+### From GitHub Releases
+
+Pre-built binaries are available on the [Releases page](https://github.com/killerapp/ycbust/releases).
 
 ## Features
 
@@ -13,43 +28,31 @@ A Rust CLI tool for efficiently downloading and extracting the YCB Object and Mo
 
 ## Usage
 
-### Prerequisites
-
-- Rust and Cargo installed.
-
-### Build
-
-```bash
-cargo build --release
-```
-
-### Running
-
 **Download Representative Subset (Default)**
 Downloads 3 common objects (Cracker Box, Sugar Box, Tomato Soup Can) to `/tmp/ycb`.
 ```bash
-cargo run --release -- --subset representative
+ycbust --subset representative
 ```
 
 **Download to Custom Directory**
 ```bash
-cargo run --release -- -o ./my_ycb_data
+ycbust -o ./my_ycb_data
 ```
 
 **Download Full Dataset (All File Types)**
 Includes `berkeley_processed`, `google_16k`, etc.
 ```bash
-cargo run --release -- --full
+ycbust --full
 ```
 
 **Download 10 Objects**
 ```bash
-cargo run --release -- --subset ten
+ycbust --subset ten
 ```
 
 **Download All Objects**
 ```bash
-cargo run --release -- --subset all
+ycbust --subset all
 ```
 
 ## CLI Options
