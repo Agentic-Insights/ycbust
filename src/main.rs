@@ -8,7 +8,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-const BASE_URL: &str = "http://ycb-benchmarks.s3-website-us-east-1.amazonaws.com/data/";
+const BASE_URL: &str = "https://ycb-benchmarks.s3.amazonaws.com/data/";
 const OBJECTS_URL: &str = "https://ycb-benchmarks.s3.amazonaws.com/data/objects.json";
 
 #[derive(Parser, Debug)]
@@ -229,6 +229,12 @@ fn extract_tgz(tgz_path: &Path, output_dir: &Path) -> Result<()> {
             }
         }
 
+        // Create parent directories if they don't exist
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+        }
+
         entry
             .unpack(&dest)
             .with_context(|| format!("Failed to extract: {}", path.display()))?;
@@ -247,7 +253,7 @@ mod tests {
         let url = get_tgz_url("003_cracker_box", "google_16k");
         assert_eq!(
             url,
-            "http://ycb-benchmarks.s3-website-us-east-1.amazonaws.com/data/google/003_cracker_box_google_16k.tgz"
+            "https://ycb-benchmarks.s3.amazonaws.com/data/google/003_cracker_box_google_16k.tgz"
         );
     }
 
@@ -256,7 +262,7 @@ mod tests {
         let url = get_tgz_url("003_cracker_box", "berkeley_processed");
         assert_eq!(
             url,
-            "http://ycb-benchmarks.s3-website-us-east-1.amazonaws.com/data/berkeley/003_cracker_box/003_cracker_box_berkeley_meshes.tgz"
+            "https://ycb-benchmarks.s3.amazonaws.com/data/berkeley/003_cracker_box/003_cracker_box_berkeley_meshes.tgz"
         );
     }
 
@@ -265,7 +271,7 @@ mod tests {
         let url = get_tgz_url("003_cracker_box", "berkeley_rgbd");
         assert_eq!(
             url,
-            "http://ycb-benchmarks.s3-website-us-east-1.amazonaws.com/data/berkeley/003_cracker_box/003_cracker_box_berkeley_rgbd.tgz"
+            "https://ycb-benchmarks.s3.amazonaws.com/data/berkeley/003_cracker_box/003_cracker_box_berkeley_rgbd.tgz"
         );
     }
 
@@ -274,7 +280,7 @@ mod tests {
         let url = get_tgz_url("003_cracker_box", "berkeley_rgb_highres");
         assert_eq!(
             url,
-            "http://ycb-benchmarks.s3-website-us-east-1.amazonaws.com/data/berkeley/003_cracker_box/003_cracker_box_berkeley_rgb_highres.tgz"
+            "https://ycb-benchmarks.s3.amazonaws.com/data/berkeley/003_cracker_box/003_cracker_box_berkeley_rgb_highres.tgz"
         );
     }
 
