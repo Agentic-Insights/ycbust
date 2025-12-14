@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4](https://github.com/killerapp/ycbust/compare/v0.2.3...v0.2.4) - 2025-12-14
+
+### Other
+
+- add Development section to README
+- add justfile for better DevEx
+- add crate link, release badges, and installation instructions
+
 ## [0.2.3](https://github.com/killerapp/ycbust/compare/v0.2.2...v0.2.3) - 2025-12-13
 
 ### Added
