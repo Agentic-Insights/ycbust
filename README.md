@@ -86,3 +86,21 @@ For each object, the tool creates a directory structure like this:
 ## Integration with Bevy/Three-d
 
 For rendering, point your asset loader to the `google_16k/textured.obj` file. It will automatically pick up the material and texture map if they are in the same folder.
+
+## Development
+
+This project uses `just` as a command runner.
+
+```bash
+# List all available commands
+just
+
+# Build the project
+just build
+
+# Run all tests
+just test
+
+# Download sample data (representative subset) to /tmp/ycb-test
+just run-demo
+```
