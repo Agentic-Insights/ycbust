@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.4](https://github.com/killerapp/ycbust/compare/v0.2.3...v0.2.4) - 2025-12-14
+## [0.2.4](https://github.com/Agentic-Insights/ycbust/compare/v0.2.3...v0.2.4) - 2025-12-14
 
 ### Other
 
@@ -15,19 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - add justfile for better DevEx
 - add crate link, release badges, and installation instructions
 
-## [0.2.3](https://github.com/killerapp/ycbust/compare/v0.2.2...v0.2.3) - 2025-12-13
+## [0.2.3](https://github.com/Agentic-Insights/ycbust/compare/v0.2.2...v0.2.3) - 2025-12-13
 
 ### Added
 
 - make ycbust importable as a library
 
-## [0.2.2](https://github.com/killerapp/ycbust/compare/v0.2.1...v0.2.2) - 2025-12-13
+## [0.2.2](https://github.com/Agentic-Insights/ycbust/compare/v0.2.1...v0.2.2) - 2025-12-13
 
 ### Fixed
 
 - update YCB S3 URL and fix tar extraction
 
-## [0.2.1](https://github.com/killerapp/ycbust/compare/v0.2.0...v0.2.1) - 2025-11-30
+## [0.2.1](https://github.com/Agentic-Insights/ycbust/compare/v0.2.0...v0.2.1) - 2025-11-30
 
 ### Added
 
