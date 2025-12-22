@@ -1,9 +1,11 @@
 # YCB Downloader (ycbust)
 
 [![Crates.io](https://img.shields.io/crates/v/ycbust.svg)](https://crates.io/crates/ycbust)
-[![GitHub release](https://img.shields.io/github/v/release/killerapp/ycbust)](https://github.com/killerapp/ycbust/releases)
+[![GitHub release](https://img.shields.io/github/v/release/Agentic-Insights/ycbust)](https://github.com/Agentic-Insights/ycbust/releases)
 
-A Rust CLI tool for efficiently downloading and extracting the YCB Object and Model Set. Designed for quick setup of 3D rendering and simulation environments (e.g., Bevy, Rapier).
+A Rust library and CLI tool for efficiently downloading and extracting the YCB Object and Model Set. Designed for quick setup of 3D rendering and simulation environments (e.g., Bevy, Rapier).
+
+> **Note**: `ycbust` can be used both as a standalone CLI tool and as a library in your Rust projects. See the [Usage](#usage) section for CLI examples and [crate documentation](https://docs.rs/ycbust) for library API details.
 
 ## Installation
 
@@ -15,7 +17,7 @@ cargo install ycbust
 
 ### From GitHub Releases
 
-Pre-built binaries are available on the [Releases page](https://github.com/killerapp/ycbust/releases).
+Pre-built binaries are available on the [Releases page](https://github.com/Agentic-Insights/ycbust/releases).
 
 ## Features
 
