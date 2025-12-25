@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5](https://github.com/Agentic-Insights/ycbust/compare/v0.2.4...v0.2.5) - 2025-12-25
+
+### Changed
+
+- Convert license from MIT to Apache 2.0 for patent grant protection
+- Migrate repository to Agentic-Insights organization
+- Reorganize justfile with command groupings for better developer experience
+
 ## [0.2.4](https://github.com/Agentic-Insights/ycbust/compare/v0.2.3...v0.2.4) - 2025-12-14
 
 ### Other
