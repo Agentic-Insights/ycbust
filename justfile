@@ -1,33 +1,43 @@
-# ycbust justfile - Developer commands
+# ycbust - YCB Dataset Downloader and Extractor
 #
-# Usage: just <command> [args...]
-# Run `just` or `just help` to see all available commands
+# Usage: just [command] [args...]
+# Run `just` to see all available commands
 
-# Default command - show help
+set shell := ["bash", "-uc"]
+set quiet := false
+
+# Default command - show help with formatting
 default:
-    @just --list
+    @echo "ycbust - Developer Commands"
+    @echo ""
+    @just --list --unsorted
 
 # ============================================================================
 # Build Commands
 # ============================================================================
 
-# Build the library and binary (debug)
+# Build the library and binary (debug mode)
+[group('build')]
 build:
     cargo build
 
-# Build in release mode
+# Build in release mode (optimized)
+[group('build')]
 build-release:
     cargo build --release
 
 # Check code without building
+[group('build')]
 check:
     cargo check
 
-# Format code
+# Format code with rustfmt
+[group('build')]
 fmt:
     cargo fmt
 
-# Run clippy linter
+# Run clippy linter with strict warnings
+[group('build')]
 lint:
     cargo clippy -- -D warnings
 
@@ -35,72 +45,107 @@ lint:
 # Test Commands
 # ============================================================================
 
-# Run all tests
+# Run all tests with quiet output
+[group('test')]
 test:
-    cargo test
+    cargo test --quiet
 
-# Run tests with output
+# Run all tests with output
+[group('test')]
 test-verbose:
-    cargo test -- --nocapture
+    cargo test -- --nocapture --test-threads=1
 
 # Run only library tests
+[group('test')]
 test-lib:
-    cargo test --lib
+    cargo test --lib --quiet
+
+# Run integration tests only
+[group('test')]
+test-integration:
+    cargo test --test '*' --quiet
 
 # ============================================================================
 # Run Commands
 # ============================================================================
 
-# Run the CLI tool
-# Usage: just run [args...]
+# Run the CLI tool with arguments: just run [args...]
+[group('run')]
 run +args:
-    cargo run -- {{args}}
+    cargo run --quiet -- {{args}}
 
 # Run the CLI help
+[group('run')]
 run-help:
-    cargo run -- --help
+    cargo run --quiet -- --help
 
-# Run the CLI to download representative subset to /tmp/ycb-test
+# Run the CLI version
+[group('run')]
+run-version:
+    cargo run --quiet -- --version
+
+# Run demo: download representative subset to /tmp/ycb-test
+[group('run')]
 run-demo:
-    cargo run -- --subset representative --output-dir /tmp/ycb-test --overwrite
+    @echo "📦 Downloading YCB representative subset..."
+    cargo run --quiet -- --subset representative --output-dir /tmp/ycb-test --overwrite
 
 # ============================================================================
-# CI/CD Commands
+# Development & Maintenance
 # ============================================================================
 
-# Run full CI check (format, lint, test)
-ci: fmt lint test
-
-# Pre-commit check
-pre-commit: fmt lint check test
-
-# ============================================================================
-# Development Commands
-# ============================================================================
-
-# Watch for changes and rebuild
+# Watch for changes and rebuild (requires cargo-watch)
+[group('dev')]
 watch:
-    cargo watch -x check
+    cargo watch -x check -x fmt -x lint
 
-# Generate documentation
+# Generate and open API documentation
+[group('dev')]
 doc:
-    cargo doc --open
+    cargo doc --no-deps --open
+
+# Run full CI pipeline: format, lint, test
+[group('dev')]
+ci: fmt lint test
+    @echo "✅ CI check passed!"
+
+# Pre-commit check: format, lint, check, test
+[group('dev')]
+pre-commit: fmt lint check test
+    @echo "✅ Ready to commit!"
 
 # Clean build artifacts
+[group('dev')]
 clean:
     cargo clean
 
+# Show detailed help
+[group('dev')]
+help:
+    @echo "ycbust - YCB Dataset Downloader & Extractor"
+    @echo ""
+    @echo "Quick Start:"
+    @echo "  just build           Build the project"
+    @echo "  just test            Run all tests"
+    @echo "  just run-demo        Download sample data"
+    @echo ""
+    @echo "Full command list: just --list"
+
 # ============================================================================
-# Help
+# Utility Commands (hidden)
 # ============================================================================
 
-# Show detailed help
-help:
-    @echo "ycbust - YCB Dataset Downloader and Extractor"
-    @echo ""
-    @echo "QUICK START:"
-    @echo "  just build              # Build the project"
-    @echo "  just test               # Run all tests"
-    @echo "  just run-demo           # Download sample data to /tmp/ycb-test"
-    @echo ""
-    @echo "Run 'just --list' to see all available commands."
+# Update dependencies
+[group('util')]
+update:
+    cargo update
+
+# Check for security vulnerabilities (requires cargo-audit)
+[group('util')]
+audit:
+    cargo audit
+
+# Show dependency tree
+[group('util')]
+deps:
+    cargo tree
