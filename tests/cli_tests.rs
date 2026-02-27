@@ -23,10 +23,9 @@ fn test_cli_help() {
     cmd.arg("--help");
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Output directory"))
-        .stdout(predicate::str::contains("--subset"))
-        .stdout(predicate::str::contains("--overwrite"))
-        .stdout(predicate::str::contains("--full"));
+        .stdout(predicate::str::contains("download"))
+        .stdout(predicate::str::contains("validate"))
+        .stdout(predicate::str::contains("list"));
 }
 
 #[test]
@@ -39,28 +38,61 @@ fn test_cli_version() {
 }
 
 #[test]
-fn test_cli_subset_values() {
-    // Test that invalid subset values are rejected
+fn test_cli_download_help() {
     let mut cmd = Command::cargo_bin("ycbust").unwrap();
-    cmd.arg("--subset").arg("invalid_subset");
-    cmd.assert().failure();
+    cmd.args(["download", "--help"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("--output-dir"))
+        .stdout(predicate::str::contains("--subset"))
+        .stdout(predicate::str::contains("--objects"))
+        .stdout(predicate::str::contains("--overwrite"));
+}
+
+#[test]
+fn test_cli_validate_help() {
+    let mut cmd = Command::cargo_bin("ycbust").unwrap();
+    cmd.args(["validate", "--help"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("--output-dir"))
+        .stdout(predicate::str::contains("--subset"));
+}
+
+#[test]
+fn test_cli_list_help() {
+    let mut cmd = Command::cargo_bin("ycbust").unwrap();
+    cmd.args(["list", "--help"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("--subset"))
+        .stdout(predicate::str::contains("--fetch"));
 }
 
 #[test]
 fn test_cli_accepts_valid_subset_representative() {
     let mut cmd = Command::cargo_bin("ycbust").unwrap();
-    cmd.arg("--help");
+    cmd.args(["download", "--help"]);
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("representative"));
+        .stdout(predicate::str::contains("representative"))
+        .stdout(predicate::str::contains("tbp-standard"))
+        .stdout(predicate::str::contains("tbp-similar"));
 }
 
 #[test]
 fn test_cli_accepts_output_dir_option() {
     let mut cmd = Command::cargo_bin("ycbust").unwrap();
-    cmd.arg("--help");
+    cmd.args(["download", "--help"]);
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("-o"))
         .stdout(predicate::str::contains("--output-dir"));
+}
+
+#[test]
+fn test_cli_invalid_subcommand() {
+    let mut cmd = Command::cargo_bin("ycbust").unwrap();
+    cmd.arg("bogus");
+    cmd.assert().failure();
 }
