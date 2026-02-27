@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/Agentic-Insights/ycbust/compare/v0.2.5...v0.3.0) - 2026-02-27
+
+### Added
+
+- [**breaking**] v0.3.0 — TBP standard objects, subcommands, validate + list ([#10](https://github.com/Agentic-Insights/ycbust/pull/10))
+
 ## [0.2.5](https://github.com/Agentic-Insights/ycbust/compare/v0.2.4...v0.2.5) - 2025-12-25
 
 ### Changed
