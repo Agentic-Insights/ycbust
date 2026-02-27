@@ -63,6 +63,27 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ## S3 Streaming (Optional Feature)
+//!
+//! With the `s3` feature enabled, you can stream YCB objects directly to an S3 bucket
+//! without local disk storage:
+//!
+//! ```no_run,ignore
+//! use ycbust::s3::{download_ycb_to_s3, S3Destination};
+//! use ycbust::{Subset, DownloadOptions};
+//!
+//! #[tokio::main]
+//! async fn main() -> anyhow::Result<()> {
+//!     let dest = S3Destination::from_url("s3://my-bucket/ycb-data/")?;
+//!     download_ycb_to_s3(Subset::Representative, dest, DownloadOptions::default(), None).await?;
+//!     Ok(())
+//! }
+//! ```
+
+// S3 streaming support (optional feature)
+#[cfg(feature = "s3")]
+pub mod s3;
 
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
@@ -84,6 +105,15 @@ pub const REPRESENTATIVE_OBJECTS: &[&str] =
     &["003_cracker_box", "004_sugar_box", "005_tomato_soup_can"];
 
 /// Subset of 10 commonly used objects.
+///
+/// # Deprecation
+///
+/// This constant does not correspond to any standard YCB benchmark.
+/// Use [`TBP_STANDARD_OBJECTS`] or [`TBP_SIMILAR_OBJECTS`] instead.
+#[deprecated(
+    since = "0.3.0",
+    note = "Use TBP_STANDARD_OBJECTS or TBP_SIMILAR_OBJECTS instead"
+)]
 pub const TEN_OBJECTS: &[&str] = &[
     "003_cracker_box",
     "004_sugar_box",
@@ -97,15 +127,60 @@ pub const TEN_OBJECTS: &[&str] = &[
     "019_pitcher_base",
 ];
 
+/// TBP standard 10-object benchmark set (distinct objects).
+///
+/// The canonical object set used by the Thousand Brains Project for their
+/// standard accuracy benchmark. Objects chosen for geometric and color diversity.
+///
+/// Source: `tbp.monty` conf/.../ycb/distinct_objects.yaml
+pub const TBP_STANDARD_OBJECTS: &[&str] = &[
+    "025_mug",
+    "024_bowl",
+    "010_potted_meat_can",
+    "031_spoon",
+    "012_strawberry",
+    "006_mustard_bottle",
+    "062_dice",
+    "058_golf_ball",
+    "073-c_lego_duplo",
+    "011_banana",
+];
+
+/// TBP similar 10-object benchmark set (harder — similar geometry).
+///
+/// Used by the Thousand Brains Project for harder discrimination benchmarks.
+/// Objects have similar geometric features, requiring finer discrimination.
+///
+/// Source: `tbp.monty` conf/.../ycb/similar_objects.yaml
+pub const TBP_SIMILAR_OBJECTS: &[&str] = &[
+    "003_cracker_box",
+    "004_sugar_box",
+    "009_gelatin_box",
+    "021_bleach_cleanser",
+    "036_wood_block",
+    "039_key",
+    "040_large_marker",
+    "051_large_clamp",
+    "052_extra_large_clamp",
+    "061_foam_brick",
+];
+
 /// Subset of objects to download.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 pub enum Subset {
     /// 3 representative objects (default).
     #[default]
     Representative,
-    /// 10 representative objects.
+    /// 10 miscellaneous objects (deprecated — not a standard benchmark set).
+    #[allow(deprecated)]
     Ten,
-    /// All available objects.
+    /// TBP standard 10-object benchmark set (distinct objects).
+    ///
+    /// The canonical set used by the Thousand Brains Project for standard accuracy benchmarks.
+    TbpStandard,
+    /// TBP similar 10-object benchmark set (harder discrimination).
+    TbpSimilar,
+    /// All available objects (~77).
     All,
 }
 
@@ -410,12 +485,15 @@ pub async fn download_ycb(
 ) -> Result<()> {
     let client = Client::new();
 
+    #[allow(deprecated)]
     let selected_objects: Vec<String> = match subset {
         Subset::Representative => REPRESENTATIVE_OBJECTS
             .iter()
             .map(|s| s.to_string())
             .collect(),
         Subset::Ten => TEN_OBJECTS.iter().map(|s| s.to_string()).collect(),
+        Subset::TbpStandard => TBP_STANDARD_OBJECTS.iter().map(|s| s.to_string()).collect(),
+        Subset::TbpSimilar => TBP_SIMILAR_OBJECTS.iter().map(|s| s.to_string()).collect(),
         Subset::All => fetch_objects(&client).await?,
     };
 
@@ -470,6 +548,7 @@ pub async fn download_ycb(
 /// assert_eq!(all, None); // Requires network fetch
 /// ```
 pub fn get_subset_objects(subset: Subset) -> Option<Vec<String>> {
+    #[allow(deprecated)]
     match subset {
         Subset::Representative => Some(
             REPRESENTATIVE_OBJECTS
@@ -478,8 +557,73 @@ pub fn get_subset_objects(subset: Subset) -> Option<Vec<String>> {
                 .collect(),
         ),
         Subset::Ten => Some(TEN_OBJECTS.iter().map(|s| s.to_string()).collect()),
+        Subset::TbpStandard => Some(TBP_STANDARD_OBJECTS.iter().map(|s| s.to_string()).collect()),
+        Subset::TbpSimilar => Some(TBP_SIMILAR_OBJECTS.iter().map(|s| s.to_string()).collect()),
         Subset::All => None,
     }
+}
+
+/// Returns the expected path to an object's mesh file.
+///
+/// # Example
+/// ```
+/// use ycbust::object_mesh_path;
+/// use std::path::Path;
+/// let p = object_mesh_path(Path::new("/tmp/ycb"), "006_mustard_bottle");
+/// assert_eq!(p.to_str().unwrap(), "/tmp/ycb/006_mustard_bottle/google_16k/textured.obj");
+/// ```
+pub fn object_mesh_path(ycb_dir: &Path, object: &str) -> std::path::PathBuf {
+    ycb_dir.join(object).join("google_16k").join("textured.obj")
+}
+
+/// Returns the expected path to an object's texture file.
+pub fn object_texture_path(ycb_dir: &Path, object: &str) -> std::path::PathBuf {
+    ycb_dir
+        .join(object)
+        .join("google_16k")
+        .join("texture_map.png")
+}
+
+/// Result of validating a single object.
+#[derive(Debug, Clone)]
+pub struct ObjectValidation {
+    /// Object name (e.g. "006_mustard_bottle")
+    pub name: String,
+    /// Whether the mesh file exists
+    pub mesh_present: bool,
+    /// Whether the texture file exists
+    pub texture_present: bool,
+}
+
+impl ObjectValidation {
+    /// Returns `true` if the object is fully present (mesh + texture).
+    pub fn is_complete(&self) -> bool {
+        self.mesh_present && self.texture_present
+    }
+}
+
+/// Validates that YCB objects are present and complete in the given directory.
+///
+/// Checks each object in the provided list for the existence of the
+/// `google_16k/textured.obj` mesh and `google_16k/texture_map.png` texture.
+///
+/// # Example
+/// ```no_run
+/// use ycbust::{validate_objects, TBP_STANDARD_OBJECTS};
+/// use std::path::Path;
+/// let results = validate_objects(Path::new("/tmp/ycb"), TBP_STANDARD_OBJECTS);
+/// let missing: Vec<_> = results.iter().filter(|r| !r.is_complete()).collect();
+/// println!("{} objects missing", missing.len());
+/// ```
+pub fn validate_objects(ycb_dir: &Path, objects: &[&str]) -> Vec<ObjectValidation> {
+    objects
+        .iter()
+        .map(|name| ObjectValidation {
+            name: name.to_string(),
+            mesh_present: object_mesh_path(ycb_dir, name).exists(),
+            texture_present: object_texture_path(ycb_dir, name).exists(),
+        })
+        .collect()
 }
 
 #[cfg(test)]
