@@ -570,7 +570,13 @@ pub fn get_subset_objects(subset: Subset) -> Option<Vec<String>> {
 /// use ycbust::object_mesh_path;
 /// use std::path::Path;
 /// let p = object_mesh_path(Path::new("/tmp/ycb"), "006_mustard_bottle");
-/// assert_eq!(p.to_str().unwrap(), "/tmp/ycb/006_mustard_bottle/google_16k/textured.obj");
+/// assert_eq!(
+///     p,
+///     Path::new("/tmp/ycb")
+///         .join("006_mustard_bottle")
+///         .join("google_16k")
+///         .join("textured.obj")
+/// );
 /// ```
 pub fn object_mesh_path(ycb_dir: &Path, object: &str) -> std::path::PathBuf {
     ycb_dir.join(object).join("google_16k").join("textured.obj")

@@ -106,3 +106,10 @@ just test
 # Download sample data (representative subset) to /tmp/ycb-test
 just run-demo
 ```
+
+## Development Posture
+
+- `ycbust` is a public crate and CLI, so docs and releases should stay useful to general Rust users.
+- If a downstream project discovers a YCB download, extraction, subset, or layout bug, the preferred fix is to land it here rather than carrying a consumer-side workaround.
+- Local path-based testing is fine during iteration, but downstream consumers should move back to released crate versions quickly.
+- Prefer small, verified releases over large bundled changes; this utility should ship often when fixes are ready.
