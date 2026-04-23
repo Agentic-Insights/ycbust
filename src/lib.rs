@@ -100,6 +100,15 @@ pub const BASE_URL: &str = "https://ycb-benchmarks.s3.amazonaws.com/data/";
 /// URL for the objects index JSON file.
 pub const OBJECTS_URL: &str = "https://ycb-benchmarks.s3.amazonaws.com/data/objects.json";
 
+/// Relative path from a per-object directory to the `google_16k` mesh file.
+///
+/// Useful when callers already have an `object_dir` and want to compose the
+/// final path themselves: `object_dir.join(GOOGLE_16K_MESH_RELATIVE)`.
+pub const GOOGLE_16K_MESH_RELATIVE: &str = "google_16k/textured.obj";
+
+/// Relative path from a per-object directory to the `google_16k` texture file.
+pub const GOOGLE_16K_TEXTURE_RELATIVE: &str = "google_16k/texture_map.png";
+
 /// Representative subset of 3 commonly used objects.
 pub const REPRESENTATIVE_OBJECTS: &[&str] =
     &["003_cracker_box", "004_sugar_box", "005_tomato_soup_can"];
@@ -513,12 +522,51 @@ pub async fn download_ycb(
 ) -> Result<()> {
     let client = Client::new();
     let selected_objects = selected_objects_for_subset(subset, &client).await?;
+    let refs: Vec<&str> = selected_objects.iter().map(String::as_str).collect();
+    download_objects(&refs, output_dir, options).await
+}
 
+/// Downloads an arbitrary list of YCB objects by ID.
+///
+/// Same per-object pipeline as [`download_ycb`] (skip-when-cached, fetch,
+/// extract), but bypasses the [`Subset`] indirection so callers can pass an
+/// ad-hoc list — e.g. a single object selected by a render harness.
+///
+/// Resume detection skips an object's `google_16k` slot when either the
+/// cached `.tgz` archive or the extracted `textured.obj` mesh is already on
+/// disk (unless `options.overwrite` is set).
+///
+/// # Example
+///
+/// ```no_run
+/// use ycbust::{download_objects, DownloadOptions};
+/// use std::path::Path;
+///
+/// #[tokio::main]
+/// async fn main() -> anyhow::Result<()> {
+///     download_objects(
+///         &["006_mustard_bottle", "011_banana"],
+///         Path::new("/tmp/ycb"),
+///         DownloadOptions::default(),
+///     )
+///     .await
+/// }
+/// ```
+pub async fn download_objects(
+    objects: &[&str],
+    output_dir: &Path,
+    options: DownloadOptions,
+) -> Result<()> {
+    if objects.is_empty() {
+        return Ok(());
+    }
+
+    let client = Client::new();
     fs::create_dir_all(output_dir).context("Failed to create output directory")?;
 
     let file_types = download_file_types(options.full);
 
-    for object in &selected_objects {
+    for object in objects {
         for &file_type in file_types {
             let filename = format!("{}_{}.tgz", object, file_type);
             let dest_path = output_dir.join(&filename);
@@ -593,15 +641,12 @@ pub fn get_subset_objects(subset: Subset) -> Option<Vec<String>> {
 /// );
 /// ```
 pub fn object_mesh_path(ycb_dir: &Path, object: &str) -> std::path::PathBuf {
-    ycb_dir.join(object).join("google_16k").join("textured.obj")
+    ycb_dir.join(object).join(GOOGLE_16K_MESH_RELATIVE)
 }
 
 /// Returns the expected path to an object's texture file.
 pub fn object_texture_path(ycb_dir: &Path, object: &str) -> std::path::PathBuf {
-    ycb_dir
-        .join(object)
-        .join("google_16k")
-        .join("texture_map.png")
+    ycb_dir.join(object).join(GOOGLE_16K_TEXTURE_RELATIVE)
 }
 
 /// Result of validating a single object.
@@ -757,5 +802,53 @@ mod tests {
             "003_cracker_box",
             "berkeley_processed"
         ));
+    }
+
+    #[test]
+    fn test_path_consts_compose_with_object_helpers() {
+        let root = Path::new("ycb-root");
+        let object = "006_mustard_bottle";
+
+        assert_eq!(
+            object_mesh_path(root, object),
+            root.join(object).join(GOOGLE_16K_MESH_RELATIVE)
+        );
+        assert_eq!(
+            object_texture_path(root, object),
+            root.join(object).join(GOOGLE_16K_TEXTURE_RELATIVE)
+        );
+    }
+
+    #[test]
+    fn test_path_consts_have_expected_values() {
+        assert_eq!(GOOGLE_16K_MESH_RELATIVE, "google_16k/textured.obj");
+        assert_eq!(GOOGLE_16K_TEXTURE_RELATIVE, "google_16k/texture_map.png");
+    }
+
+    #[tokio::test]
+    async fn test_download_objects_empty_slice_is_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = download_objects(&[], dir.path(), DownloadOptions::default()).await;
+        assert!(result.is_ok());
+        // Output dir should not even be created for an empty list.
+        let entries = fs::read_dir(dir.path()).unwrap().count();
+        assert_eq!(entries, 0);
+    }
+
+    #[tokio::test]
+    async fn test_download_objects_skips_when_mesh_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let mesh_path = object_mesh_path(dir.path(), "003_cracker_box");
+        fs::create_dir_all(mesh_path.parent().unwrap()).unwrap();
+        File::create(&mesh_path).unwrap();
+
+        // No network call should happen because the mesh is already on disk.
+        // If skip logic regresses, this hits the network and fails in offline CI.
+        let options = DownloadOptions {
+            show_progress: false,
+            ..DownloadOptions::default()
+        };
+        let result = download_objects(&["003_cracker_box"], dir.path(), options).await;
+        assert!(result.is_ok());
     }
 }
