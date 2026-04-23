@@ -85,9 +85,14 @@
 #[cfg(feature = "s3")]
 pub mod s3;
 
-use anyhow::{Context, Result};
-use futures_util::StreamExt;
-use indicatif::{ProgressBar, ProgressStyle};
+mod error;
+pub use error::{Result, YcbError};
+
+#[cfg(feature = "blocking")]
+pub mod blocking;
+
+use futures_util::stream::{self, StreamExt, TryStreamExt};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
 use serde::Deserialize;
 use std::fs::{self, File};
@@ -194,7 +199,12 @@ pub enum Subset {
 }
 
 /// Options for downloading YCB objects.
+///
+/// Marked `#[non_exhaustive]` so adding new fields is not a breaking change.
+/// Construct with `DownloadOptions::default()` and override the fields you
+/// care about, or use the `..Default::default()` struct-update syntax.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct DownloadOptions {
     /// Overwrite existing files.
     pub overwrite: bool,
@@ -205,6 +215,20 @@ pub struct DownloadOptions {
     pub show_progress: bool,
     /// Delete archive files after extraction.
     pub delete_archives: bool,
+    /// Maximum number of concurrent per-object downloads.
+    ///
+    /// Default is `1` for behavior-preserving compatibility. Increase to
+    /// parallelise large subset downloads (e.g. `4` is a sensible value for
+    /// `Subset::TbpStandard`/`TbpSimilar`/`All`). Values of `0` are clamped
+    /// to `1`.
+    pub concurrency: usize,
+    /// Verify download integrity after each archive completes.
+    ///
+    /// When `true` (default), the on-disk size of a cached archive is
+    /// compared against the server-reported `Content-Length` on resume; a
+    /// mismatch triggers a re-download. Disable to favour speed over
+    /// correctness when network round trips are expensive.
+    pub verify_integrity: bool,
 }
 
 impl Default for DownloadOptions {
@@ -214,6 +238,8 @@ impl Default for DownloadOptions {
             full: false,
             show_progress: true,
             delete_archives: true,
+            concurrency: 1,
+            verify_integrity: true,
         }
     }
 }
@@ -224,7 +250,10 @@ struct ObjectsResponse {
     objects: Vec<String>,
 }
 
-async fn selected_objects_for_subset(subset: Subset, client: &Client) -> Result<Vec<String>> {
+pub(crate) async fn selected_objects_for_subset(
+    subset: Subset,
+    client: &Client,
+) -> Result<Vec<String>> {
     match get_subset_objects(subset) {
         Some(objects) => Ok(objects),
         None => fetch_objects(client).await,
@@ -263,18 +292,17 @@ fn local_artifact_exists(output_dir: &Path, object: &str, file_type: &str) -> bo
 /// }
 /// ```
 pub async fn fetch_objects(client: &Client) -> Result<Vec<String>> {
-    let response = client
-        .get(OBJECTS_URL)
-        .send()
-        .await
-        .with_context(|| format!("Failed to fetch objects list from {}", OBJECTS_URL))?;
-    let response = response
-        .error_for_status()
-        .with_context(|| format!("YCB objects endpoint returned an error for {}", OBJECTS_URL))?;
-    let objects_response: ObjectsResponse = response
-        .json()
-        .await
-        .context("Failed to parse objects JSON")?;
+    let response = client.get(OBJECTS_URL).send().await?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(YcbError::HttpStatus {
+            status: status.as_u16(),
+            url: OBJECTS_URL.to_string(),
+        });
+    }
+    let body = response.text().await?;
+    let objects_response: ObjectsResponse = serde_json::from_str(&body)
+        .map_err(|e| YcbError::InvalidResponse(format!("YCB objects index: {e}")))?;
     Ok(objects_response.objects)
 }
 
@@ -339,14 +367,24 @@ pub async fn download_file(
     dest_path: &Path,
     show_progress: bool,
 ) -> Result<()> {
-    let res = client
-        .get(url)
-        .send()
-        .await
-        .with_context(|| format!("Failed to send request to {}", url))?;
-    let res = res
-        .error_for_status()
-        .with_context(|| format!("YCB download failed for {}", url))?;
+    download_file_inner(client, url, dest_path, show_progress, None).await
+}
+
+async fn download_file_inner(
+    client: &Client,
+    url: &str,
+    dest_path: &Path,
+    show_progress: bool,
+    multi: Option<&MultiProgress>,
+) -> Result<()> {
+    let res = client.get(url).send().await?;
+    let status = res.status();
+    if !status.is_success() {
+        return Err(YcbError::HttpStatus {
+            status: status.as_u16(),
+            url: url.to_string(),
+        });
+    }
     let total_size = res.content_length().unwrap_or(0);
     let filename = dest_path
         .file_name()
@@ -357,23 +395,25 @@ pub async fn download_file(
         let pb = ProgressBar::new(total_size);
         pb.set_style(
             ProgressStyle::default_bar()
-                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta}) {msg}")
                 .expect("Invalid progress bar template - this is a bug")
                 .progress_chars("#>-"),
         );
         pb.set_message(format!("Downloading {}", filename));
-        Some(pb)
+        Some(match multi {
+            Some(m) => m.add(pb),
+            None => pb,
+        })
     } else {
         None
     };
 
-    let mut file = File::create(dest_path).context("Failed to create file")?;
+    let mut file = File::create(dest_path)?;
     let mut stream = res.bytes_stream();
 
     while let Some(item) = stream.next().await {
-        let chunk = item.context("Error while downloading chunk")?;
-        file.write_all(&chunk)
-            .context("Error while writing to file")?;
+        let chunk = item?;
+        file.write_all(&chunk)?;
         if let Some(ref pb) = pb {
             pb.inc(chunk.len() as u64);
         }
@@ -411,56 +451,53 @@ pub async fn download_file(
 /// }
 /// ```
 pub fn extract_tgz(tgz_path: &Path, output_dir: &Path, delete_archive: bool) -> Result<()> {
+    let tgz_str = tgz_path.display().to_string();
     let tar_gz = File::open(tgz_path)?;
     let tar = flate2::read::GzDecoder::new(tar_gz);
     let mut archive = tar::Archive::new(tar);
 
-    // Validate and extract each entry to prevent path traversal attacks
-    for entry in archive
+    let entries = archive
         .entries()
-        .context("Failed to read archive entries")?
-    {
-        let mut entry = entry.context("Failed to read archive entry")?;
+        .map_err(|e| YcbError::extraction(&tgz_str, e))?;
+
+    for entry in entries {
+        let mut entry = entry.map_err(|e| YcbError::extraction(&tgz_str, e))?;
         let path = entry
             .path()
-            .context("Failed to get entry path")?
+            .map_err(|e| YcbError::extraction(&tgz_str, e))?
             .to_path_buf();
 
-        // Reject paths with parent directory components (..)
         if path
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
         {
-            anyhow::bail!(
-                "Archive contains invalid path with '..': {}",
+            return Err(YcbError::UnsafeArchive(format!(
+                "archive entry contains '..': {}",
                 path.display()
-            );
+            )));
         }
 
         let dest = output_dir.join(&path);
 
-        // Ensure destination is within output_dir (canonicalization check)
         let canonical_output = output_dir
             .canonicalize()
             .unwrap_or_else(|_| output_dir.to_path_buf());
         if let Ok(canonical_dest) = dest.canonicalize() {
             if !canonical_dest.starts_with(&canonical_output) {
-                anyhow::bail!(
-                    "Archive tries to write outside output directory: {}",
+                return Err(YcbError::UnsafeArchive(format!(
+                    "archive entry escapes output dir: {}",
                     dest.display()
-                );
+                )));
             }
         }
 
-        // Create parent directories if they don't exist
         if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+            fs::create_dir_all(parent)?;
         }
 
         entry
             .unpack(&dest)
-            .with_context(|| format!("Failed to extract: {}", path.display()))?;
+            .map_err(|e| YcbError::extraction(&tgz_str, e))?;
     }
 
     if delete_archive {
@@ -480,12 +517,21 @@ pub fn extract_tgz(tgz_path: &Path, output_dir: &Path, delete_archive: bool) -> 
 ///
 /// `true` if the URL returns a successful status code, `false` otherwise.
 pub async fn url_exists(client: &Client, url: &str) -> Result<bool> {
-    let response = client
-        .head(url)
-        .send()
-        .await
-        .context("Failed to check URL")?;
+    let response = client.head(url).send().await?;
     Ok(response.status().is_success())
+}
+
+/// Returns the server-reported `Content-Length` for `url`, if any.
+///
+/// `Ok(None)` means the server did not return a `Content-Length` header
+/// (or returned a value that wasn't a parsable `u64`); the integrity check
+/// is then skipped for that URL.
+async fn fetch_content_length(client: &Client, url: &str) -> Result<Option<u64>> {
+    let response = client.head(url).send().await?;
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+    Ok(response.content_length())
 }
 
 /// High-level function to download YCB objects.
@@ -526,6 +572,61 @@ pub async fn download_ycb(
     download_objects(&refs, output_dir, options).await
 }
 
+/// Outcome for a single (object, file_type) work item.
+enum WorkOutcome {
+    Skipped,
+    Downloaded,
+}
+
+async fn process_work_item(
+    client: &Client,
+    output_dir: &Path,
+    options: &DownloadOptions,
+    multi: Option<&MultiProgress>,
+    object: &str,
+    file_type: &'static str,
+) -> Result<WorkOutcome> {
+    let filename = format!("{}_{}.tgz", object, file_type);
+    let dest_path = output_dir.join(&filename);
+    let url = get_tgz_url(object, file_type);
+
+    let mut have_valid_archive = false;
+    if !options.overwrite && dest_path.exists() {
+        if options.verify_integrity {
+            match fetch_content_length(client, &url).await? {
+                Some(expected) => {
+                    let actual = std::fs::metadata(&dest_path)?.len();
+                    if actual == expected {
+                        have_valid_archive = true;
+                    } else {
+                        // Stale / partial cache — drop it so we re-fetch below.
+                        let _ = std::fs::remove_file(&dest_path);
+                    }
+                }
+                None => {
+                    have_valid_archive = true;
+                }
+            }
+        } else {
+            have_valid_archive = true;
+        }
+    }
+
+    if !options.overwrite
+        && (have_valid_archive || local_artifact_exists(output_dir, object, file_type))
+    {
+        return Ok(WorkOutcome::Skipped);
+    }
+
+    if !url_exists(client, &url).await? {
+        return Ok(WorkOutcome::Skipped);
+    }
+
+    download_file_inner(client, &url, &dest_path, options.show_progress, multi).await?;
+    extract_tgz(&dest_path, output_dir, options.delete_archives)?;
+    Ok(WorkOutcome::Downloaded)
+}
+
 /// Downloads an arbitrary list of YCB objects by ID.
 ///
 /// Same per-object pipeline as [`download_ycb`] (skip-when-cached, fetch,
@@ -549,7 +650,8 @@ pub async fn download_ycb(
 ///         Path::new("/tmp/ycb"),
 ///         DownloadOptions::default(),
 ///     )
-///     .await
+///     .await?;
+///     Ok(())
 /// }
 /// ```
 pub async fn download_objects(
@@ -562,30 +664,33 @@ pub async fn download_objects(
     }
 
     let client = Client::new();
-    fs::create_dir_all(output_dir).context("Failed to create output directory")?;
+    fs::create_dir_all(output_dir).map_err(YcbError::Io)?;
 
     let file_types = download_file_types(options.full);
+    let concurrency = options.concurrency.max(1);
+    let multi = if options.show_progress && concurrency > 1 {
+        Some(MultiProgress::new())
+    } else {
+        None
+    };
 
-    for object in objects {
-        for &file_type in file_types {
-            let filename = format!("{}_{}.tgz", object, file_type);
-            let dest_path = output_dir.join(&filename);
+    let work: Vec<(&str, &'static str)> = objects
+        .iter()
+        .flat_map(|o| file_types.iter().map(move |ft| (*o, *ft)))
+        .collect();
 
-            if !options.overwrite
-                && (dest_path.exists() || local_artifact_exists(output_dir, object, file_type))
-            {
-                continue;
+    stream::iter(work)
+        .map(|(object, file_type)| {
+            let client = &client;
+            let multi = multi.as_ref();
+            let options = &options;
+            async move {
+                process_work_item(client, output_dir, options, multi, object, file_type).await
             }
-
-            let url = get_tgz_url(object, file_type);
-            if !url_exists(&client, &url).await? {
-                continue;
-            }
-
-            download_file(&client, &url, &dest_path, options.show_progress).await?;
-            extract_tgz(&dest_path, output_dir, options.delete_archives)?;
-        }
-    }
+        })
+        .buffer_unordered(concurrency)
+        .try_for_each(|_| async { Ok::<(), YcbError>(()) })
+        .await?;
 
     Ok(())
 }
@@ -753,6 +858,8 @@ mod tests {
         assert!(!options.full);
         assert!(options.show_progress);
         assert!(options.delete_archives);
+        assert_eq!(options.concurrency, 1);
+        assert!(options.verify_integrity);
     }
 
     #[test]
@@ -849,6 +956,51 @@ mod tests {
             ..DownloadOptions::default()
         };
         let result = download_objects(&["003_cracker_box"], dir.path(), options).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_download_objects_concurrent_skips_when_all_meshes_present() {
+        // Pre-populate meshes for the full TBP standard set; with
+        // concurrency=4, the function should still skip every item
+        // without any network calls.
+        let dir = tempfile::tempdir().unwrap();
+        for object in TBP_STANDARD_OBJECTS {
+            let mesh_path = object_mesh_path(dir.path(), object);
+            fs::create_dir_all(mesh_path.parent().unwrap()).unwrap();
+            File::create(&mesh_path).unwrap();
+        }
+
+        let options = DownloadOptions {
+            show_progress: false,
+            concurrency: 4,
+            ..DownloadOptions::default()
+        };
+        let refs: Vec<&str> = TBP_STANDARD_OBJECTS.to_vec();
+        let result = download_objects(&refs, dir.path(), options).await;
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_ycb_error_converts_to_and_from_anyhow() {
+        let y = YcbError::HttpStatus {
+            status: 404,
+            url: "https://example.com".into(),
+        };
+        let a: anyhow::Error = y.into();
+        assert!(a.to_string().contains("404"));
+
+        let a2 = anyhow::anyhow!("boom");
+        let y2: YcbError = a2.into();
+        assert!(matches!(y2, YcbError::Other(_)));
+    }
+
+    #[cfg(feature = "blocking")]
+    #[test]
+    fn test_blocking_download_objects_empty_slice() {
+        let dir = tempfile::tempdir().unwrap();
+        let result =
+            crate::blocking::download_objects_blocking(&[], dir.path(), DownloadOptions::default());
         assert!(result.is_ok());
     }
 }

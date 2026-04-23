@@ -97,6 +97,10 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         full: bool,
 
+        /// Maximum concurrent per-object downloads (default 1)
+        #[arg(long, default_value_t = 1)]
+        concurrency: usize,
+
         #[cfg(feature = "s3")]
         #[arg(long)]
         profile: Option<String>,
@@ -137,6 +141,7 @@ async fn main() -> Result<()> {
             objects,
             overwrite,
             full,
+            concurrency,
             #[cfg(feature = "s3")]
             profile,
             #[cfg(feature = "s3")]
@@ -145,8 +150,16 @@ async fn main() -> Result<()> {
             if output_dir.starts_with("s3://") {
                 #[cfg(feature = "s3")]
                 {
-                    return run_s3_download(output_dir, subset, overwrite, full, profile, region)
-                        .await;
+                    return run_s3_download(
+                        output_dir,
+                        subset,
+                        overwrite,
+                        full,
+                        profile,
+                        region,
+                        concurrency,
+                    )
+                    .await;
                 }
                 #[cfg(not(feature = "s3"))]
                 anyhow::bail!(
@@ -154,7 +167,7 @@ async fn main() -> Result<()> {
                      Rebuild with: cargo install ycbust --features s3"
                 );
             }
-            run_local_download(output_dir, subset, objects, overwrite, full).await
+            run_local_download(output_dir, subset, objects, overwrite, full, concurrency).await
         }
 
         Commands::Validate { output_dir, subset } => run_validate(output_dir, subset),
@@ -169,14 +182,13 @@ async fn run_local_download(
     objects: Vec<String>,
     overwrite: bool,
     full: bool,
+    concurrency: usize,
 ) -> Result<()> {
     let output_path = PathBuf::from(&output_dir);
-    let options = DownloadOptions {
-        overwrite,
-        full,
-        show_progress: true,
-        delete_archives: true,
-    };
+    let mut options = DownloadOptions::default();
+    options.overwrite = overwrite;
+    options.full = full;
+    options.concurrency = concurrency;
 
     if !objects.is_empty() {
         let client = Client::new();
@@ -333,18 +345,17 @@ async fn run_s3_download(
     full: bool,
     profile: Option<String>,
     region: String,
+    concurrency: usize,
 ) -> Result<()> {
     let mut dest = S3Destination::from_url(&output_url)?;
     dest = dest.with_region(&region);
     println!("Checking AWS credentials...");
     let identity = check_aws_credentials(profile.as_deref()).await?;
     println!("{}", identity);
-    let options = DownloadOptions {
-        overwrite,
-        full,
-        show_progress: true,
-        delete_archives: true,
-    };
+    let mut options = DownloadOptions::default();
+    options.overwrite = overwrite;
+    options.full = full;
+    options.concurrency = concurrency;
     let ycb_subset: ycbust::Subset = subset.unwrap_or(SubsetArg::TbpStandard).into();
     println!("\nStreaming to S3...");
     let stats = download_ycb_to_s3(ycb_subset, dest.clone(), options, profile.as_deref()).await?;
