@@ -100,7 +100,7 @@ For a typical `google_16k` download, `ycbust` produces:
       ...
 ```
 
-For rendering workflows, point your asset loader at `google_16k/textured.obj`.
+For rendering workflows, point your asset loader at `google_16k/textured.obj`. The relative path is also exposed as the `GOOGLE_16K_MESH_RELATIVE` constant for callers that already hold an `object_dir`.
 
 ## Library Usage
 
@@ -120,6 +120,23 @@ async fn main() -> anyhow::Result<()> {
     .await?;
 
     Ok(())
+}
+```
+
+For an ad-hoc list of object IDs (no `Subset` indirection), use `download_objects`:
+
+```rust,no_run
+use std::path::Path;
+use ycbust::{download_objects, DownloadOptions};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    download_objects(
+        &["006_mustard_bottle", "011_banana"],
+        Path::new("./data/ycb"),
+        DownloadOptions::default(),
+    )
+    .await
 }
 ```
 
