@@ -215,6 +215,28 @@ struct ObjectsResponse {
     objects: Vec<String>,
 }
 
+async fn selected_objects_for_subset(subset: Subset, client: &Client) -> Result<Vec<String>> {
+    match get_subset_objects(subset) {
+        Some(objects) => Ok(objects),
+        None => fetch_objects(client).await,
+    }
+}
+
+fn download_file_types(full: bool) -> &'static [&'static str] {
+    if full {
+        &["berkeley_processed", "google_16k"]
+    } else {
+        &["google_16k"]
+    }
+}
+
+fn local_artifact_exists(output_dir: &Path, object: &str, file_type: &str) -> bool {
+    match file_type {
+        "google_16k" => object_mesh_path(output_dir, object).exists(),
+        _ => false,
+    }
+}
+
 /// Fetches the list of available objects from the YCB dataset.
 ///
 /// # Example
@@ -236,7 +258,10 @@ pub async fn fetch_objects(client: &Client) -> Result<Vec<String>> {
         .get(OBJECTS_URL)
         .send()
         .await
-        .context("Failed to fetch objects list")?;
+        .with_context(|| format!("Failed to fetch objects list from {}", OBJECTS_URL))?;
+    let response = response
+        .error_for_status()
+        .with_context(|| format!("YCB objects endpoint returned an error for {}", OBJECTS_URL))?;
     let objects_response: ObjectsResponse = response
         .json()
         .await
@@ -309,7 +334,10 @@ pub async fn download_file(
         .get(url)
         .send()
         .await
-        .context("Failed to send request")?;
+        .with_context(|| format!("Failed to send request to {}", url))?;
+    let res = res
+        .error_for_status()
+        .with_context(|| format!("YCB download failed for {}", url))?;
     let total_size = res.content_length().unwrap_or(0);
     let filename = dest_path
         .file_name()
@@ -484,39 +512,25 @@ pub async fn download_ycb(
     options: DownloadOptions,
 ) -> Result<()> {
     let client = Client::new();
-
-    #[allow(deprecated)]
-    let selected_objects: Vec<String> = match subset {
-        Subset::Representative => REPRESENTATIVE_OBJECTS
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
-        Subset::Ten => TEN_OBJECTS.iter().map(|s| s.to_string()).collect(),
-        Subset::TbpStandard => TBP_STANDARD_OBJECTS.iter().map(|s| s.to_string()).collect(),
-        Subset::TbpSimilar => TBP_SIMILAR_OBJECTS.iter().map(|s| s.to_string()).collect(),
-        Subset::All => fetch_objects(&client).await?,
-    };
+    let selected_objects = selected_objects_for_subset(subset, &client).await?;
 
     fs::create_dir_all(output_dir).context("Failed to create output directory")?;
 
-    let file_types = if options.full {
-        vec!["berkeley_processed", "google_16k"]
-    } else {
-        vec!["google_16k"]
-    };
+    let file_types = download_file_types(options.full);
 
     for object in &selected_objects {
-        for file_type in &file_types {
-            let url = get_tgz_url(object, file_type);
-
-            if !url_exists(&client, &url).await? {
-                continue;
-            }
-
+        for &file_type in file_types {
             let filename = format!("{}_{}.tgz", object, file_type);
             let dest_path = output_dir.join(&filename);
 
-            if dest_path.exists() && !options.overwrite {
+            if !options.overwrite
+                && (dest_path.exists() || local_artifact_exists(output_dir, object, file_type))
+            {
+                continue;
+            }
+
+            let url = get_tgz_url(object, file_type);
+            if !url_exists(&client, &url).await? {
                 continue;
             }
 
@@ -709,8 +723,39 @@ mod tests {
     }
 
     #[test]
+    fn test_get_subset_objects_tbp_standard() {
+        let objects = get_subset_objects(Subset::TbpStandard);
+        assert_eq!(objects.unwrap().len(), 10);
+    }
+
+    #[test]
+    fn test_get_subset_objects_tbp_similar() {
+        let objects = get_subset_objects(Subset::TbpSimilar);
+        assert_eq!(objects.unwrap().len(), 10);
+    }
+
+    #[test]
     fn test_get_subset_objects_all() {
         let objects = get_subset_objects(Subset::All);
         assert!(objects.is_none());
+    }
+
+    #[test]
+    fn test_local_artifact_exists_for_google_16k_mesh() {
+        let dir = tempfile::tempdir().unwrap();
+        let mesh_path = object_mesh_path(dir.path(), "003_cracker_box");
+        fs::create_dir_all(mesh_path.parent().unwrap()).unwrap();
+        File::create(&mesh_path).unwrap();
+
+        assert!(local_artifact_exists(
+            dir.path(),
+            "003_cracker_box",
+            "google_16k"
+        ));
+        assert!(!local_artifact_exists(
+            dir.path(),
+            "003_cracker_box",
+            "berkeley_processed"
+        ));
     }
 }

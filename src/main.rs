@@ -16,11 +16,11 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use reqwest::Client;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use ycbust::{
     download_file, download_ycb, extract_tgz, fetch_objects, get_subset_objects, get_tgz_url,
-    url_exists, validate_objects, DownloadOptions, REPRESENTATIVE_OBJECTS, TBP_SIMILAR_OBJECTS,
-    TBP_STANDARD_OBJECTS,
+    object_mesh_path, url_exists, validate_objects, DownloadOptions, REPRESENTATIVE_OBJECTS,
+    TBP_SIMILAR_OBJECTS, TBP_STANDARD_OBJECTS,
 };
 
 #[cfg(feature = "s3")]
@@ -49,6 +49,18 @@ impl From<SubsetArg> for ycbust::Subset {
     }
 }
 
+fn default_output_dir_path() -> PathBuf {
+    std::env::temp_dir().join("ycb")
+}
+
+fn default_output_dir_string() -> String {
+    default_output_dir_path().display().to_string()
+}
+
+fn local_artifact_exists(output_dir: &Path, object: &str, file_type: &str) -> bool {
+    matches!(file_type, "google_16k") && object_mesh_path(output_dir, object).exists()
+}
+
 #[derive(Parser, Debug)]
 #[command(
     author,
@@ -66,7 +78,7 @@ enum Commands {
     /// Download YCB objects to local disk or S3
     Download {
         /// Output directory (or S3 URL with --features s3)
-        #[arg(short, long, default_value = "/tmp/ycb")]
+        #[arg(short, long, default_value_t = default_output_dir_string())]
         output_dir: String,
 
         /// Preset subset of objects to download
@@ -96,7 +108,7 @@ enum Commands {
 
     /// Validate that YCB objects are present and complete
     Validate {
-        #[arg(short, long, default_value = "/tmp/ycb")]
+        #[arg(short, long, default_value_os_t = default_output_dir_path())]
         output_dir: PathBuf,
 
         #[arg(short, long, value_enum, default_value_t = SubsetArg::TbpStandard)]
@@ -169,27 +181,31 @@ async fn run_local_download(
     if !objects.is_empty() {
         let client = Client::new();
         fs::create_dir_all(&output_path).context("Failed to create output directory")?;
-        let file_types = if full {
-            vec!["berkeley_processed", "google_16k"]
+        let file_types: &[&str] = if full {
+            &["berkeley_processed", "google_16k"]
         } else {
-            vec!["google_16k"]
+            &["google_16k"]
         };
 
         println!(
-            "Downloading {} object(s) to {:?}",
+            "Downloading {} object(s) to {}",
             objects.len(),
-            output_path
+            output_path.display()
         );
         for object in &objects {
-            for file_type in &file_types {
+            for &file_type in file_types {
+                let dest_path = output_path.join(format!("{}_{}.tgz", object, file_type));
+                if !overwrite
+                    && (dest_path.exists()
+                        || local_artifact_exists(&output_path, object, file_type))
+                {
+                    println!("  ✓  {} ({}) already present", object, file_type);
+                    continue;
+                }
+
                 let url = get_tgz_url(object, file_type);
                 if !url_exists(&client, &url).await? {
                     println!("  ⚠  {} ({}) not found, skipping", object, file_type);
-                    continue;
-                }
-                let dest_path = output_path.join(format!("{}_{}.tgz", object, file_type));
-                if dest_path.exists() && !overwrite {
-                    println!("  ✓  {} already present", object);
                     continue;
                 }
                 download_file(&client, &url, &dest_path, true).await?;
@@ -203,9 +219,9 @@ async fn run_local_download(
 
     let subset = subset.unwrap_or(SubsetArg::TbpStandard);
     println!(
-        "Downloading {} to {:?}...",
+        "Downloading {} to {}...",
         subset_display_name(subset),
-        output_path
+        output_path.display()
     );
     download_ycb(subset.into(), &output_path, options).await?;
     println!("\n✅ Done → {}", output_path.display());
@@ -228,10 +244,10 @@ fn run_validate(output_dir: PathBuf, subset: SubsetArg) -> Result<()> {
     };
 
     println!(
-        "Validating {} ({} objects) in {:?}\n",
+        "Validating {} ({} objects) in {}\n",
         subset_display_name(subset),
         objects.len(),
-        output_dir
+        output_dir.display()
     );
 
     let results = validate_objects(&output_dir, objects);

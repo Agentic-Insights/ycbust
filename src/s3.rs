@@ -48,8 +48,7 @@ use s3::error::S3Error;
 use s3::region::Region;
 use s3::Bucket;
 
-use crate::{fetch_objects, get_tgz_url, url_exists, DownloadOptions, Subset};
-use crate::{REPRESENTATIVE_OBJECTS, TEN_OBJECTS};
+use crate::{fetch_objects, get_subset_objects, get_tgz_url, url_exists, DownloadOptions, Subset};
 
 /// Represents an S3 destination for uploading YCB objects.
 #[derive(Clone, Debug)]
@@ -290,13 +289,9 @@ pub async fn download_ycb_to_s3(
     let mut stats = S3UploadStats::default();
 
     // Get list of objects to download
-    let selected_objects: Vec<String> = match subset {
-        Subset::Representative => REPRESENTATIVE_OBJECTS
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
-        Subset::Ten => TEN_OBJECTS.iter().map(|s| s.to_string()).collect(),
-        Subset::All => fetch_objects(&http_client).await?,
+    let selected_objects = match get_subset_objects(subset) {
+        Some(objects) => objects,
+        None => fetch_objects(&http_client).await?,
     };
 
     let file_types = if options.full {
