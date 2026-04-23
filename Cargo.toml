@@ -14,6 +14,7 @@ exclude = [".github", "target"]
 [features]
 default = []
 s3 = ["dep:rust-s3", "dep:async-compression", "dep:async-tar", "dep:tokio-util", "dep:pin-project-lite"]
+blocking = []
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
@@ -26,6 +27,7 @@ flate2 = "1.0"
 tar = "0.4"
 futures-util = "0.3"
 anyhow = "1.0"
+thiserror = "1.0"
 
 # S3 streaming support (optional)
 rust-s3 = { version = "0.35", default-features = false, features = ["tokio-rustls-tls"], optional = true }

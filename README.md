@@ -11,8 +11,11 @@
 - Fast presets for `representative`, `tbp-standard`, `tbp-similar`, and `all`
 - `google_16k` meshes by default, with `--full` for extra Berkeley assets
 - Validation helpers for checking that benchmark objects are fully present
-- Progress bars for local downloads
+- Parallel downloads via `DownloadOptions::concurrency` (default 1)
+- `Content-Length` integrity check on resume (toggle via `verify_integrity`)
+- Typed `YcbError` enum so consumers can match on network / http / io / integrity / extraction failures
 - Optional `s3` feature for streaming extracted assets directly to S3
+- Optional `blocking` feature with sync wrappers for non-async callers
 
 ## Installation
 
@@ -136,11 +139,60 @@ async fn main() -> anyhow::Result<()> {
         Path::new("./data/ycb"),
         DownloadOptions::default(),
     )
-    .await
+    .await?;
+    Ok(())
 }
 ```
 
+To download in parallel and skip the integrity check:
+
+```rust,no_run
+use ycbust::DownloadOptions;
+
+let mut options = DownloadOptions::default();
+options.concurrency = 4;
+options.verify_integrity = false;
+```
+
+For non-async callers, enable the `blocking` feature and use the synchronous wrappers:
+
+```toml
+[dependencies]
+ycbust = { version = "0.4", features = ["blocking"] }
+```
+
+```rust,ignore
+use ycbust::blocking::download_objects_blocking;
+use ycbust::DownloadOptions;
+
+download_objects_blocking(
+    &["006_mustard_bottle"],
+    std::path::Path::new("./data/ycb"),
+    DownloadOptions::default(),
+)?;
+```
+
 API docs: [docs.rs/ycbust](https://docs.rs/ycbust)
+
+## Error handling
+
+All public APIs return `Result<T, ycbust::YcbError>`. Match on the variants for granular handling:
+
+```rust,no_run
+use ycbust::{download_objects, DownloadOptions, YcbError};
+
+# async fn run() {
+match download_objects(&["006_mustard_bottle"], std::path::Path::new("./data/ycb"), DownloadOptions::default()).await {
+    Ok(()) => {},
+    Err(YcbError::Network(_)) | Err(YcbError::HttpStatus { .. }) => { /* retry */ },
+    Err(YcbError::Io(_)) => { /* disk full, permissions, etc */ },
+    Err(YcbError::Integrity { .. }) => { /* re-download or alert */ },
+    Err(other) => { eprintln!("{other}"); },
+}
+# }
+```
+
+`anyhow` users get `From<YcbError> for anyhow::Error` for free.
 
 ## S3 Streaming
 
