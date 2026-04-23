@@ -113,7 +113,7 @@ run-version:
 [group('run')]
 run-demo:
     @echo "📦 Downloading YCB representative subset..."
-    cargo run --quiet -- --subset representative --output-dir /tmp/ycb-test --overwrite
+    cargo run --quiet -- download --subset representative --output-dir "${TMPDIR:-/tmp}/ycb-test" --overwrite
 
 # ============================================================================
 # Development & Maintenance
@@ -157,6 +157,7 @@ help:
     @echo "Quick Start:"
     @echo "  just build           Build the project"
     @echo "  just test            Run all tests"
+    @echo "  just test-s3         Run tests with optional S3 support"
     @echo "  just run-demo        Download sample data"
     @echo ""
     @echo "Full command list: just --list"
