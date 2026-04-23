@@ -1,115 +1,151 @@
-# YCB Downloader (ycbust)
+# YCB Downloader (`ycbust`)
 
 [![Crates.io](https://img.shields.io/crates/v/ycbust.svg)](https://crates.io/crates/ycbust)
 [![GitHub release](https://img.shields.io/github/v/release/Agentic-Insights/ycbust)](https://github.com/Agentic-Insights/ycbust/releases)
 
-A Rust library and CLI tool for efficiently downloading and extracting the YCB Object and Model Set. Designed for quick setup of 3D rendering and simulation environments (e.g., Bevy, Rapier).
+`ycbust` is a Rust library and CLI for downloading and extracting assets from the YCB Object and Model Set. It is aimed at rendering, robotics, and simulation workflows that need a predictable local YCB layout with minimal setup.
 
-> **Note**: `ycbust` can be used both as a standalone CLI tool and as a library in your Rust projects. See the [Usage](#usage) section for CLI examples and [crate documentation](https://docs.rs/ycbust) for library API details.
+## Features
+
+- Library and CLI interfaces for the same download/extract workflow
+- Fast presets for `representative`, `tbp-standard`, `tbp-similar`, and `all`
+- `google_16k` meshes by default, with `--full` for extra Berkeley assets
+- Validation helpers for checking that benchmark objects are fully present
+- Progress bars for local downloads
+- Optional `s3` feature for streaming extracted assets directly to S3
 
 ## Installation
 
-### From crates.io
+Install the CLI from crates.io:
 
 ```bash
 cargo install ycbust
 ```
 
-### From GitHub Releases
+Install with S3 support:
 
-Pre-built binaries are available on the [Releases page](https://github.com/Agentic-Insights/ycbust/releases).
-
-## Features
-
-- **Configurable Output**: Specify the download directory.
-- **Smart Subsets**: Download a representative subset (3 objects), a larger set (10 objects), or the entire dataset.
-- **Optimized Defaults**: By default, downloads only the `google_16k` meshes (high-quality, water-tight meshes best for rendering and physics).
-- **Full Dataset Option**: Optional flag to download all auxiliary files (point clouds, poisson reconstructions, etc.).
-- **Visual Feedback**: Clean progress bars with filename indication.
-- **Auto-Extraction**: Automatically handles `.tgz` extraction and cleanup.
-
-## Usage
-
-**Download Representative Subset (Default)**
-Downloads 3 common objects (Cracker Box, Sugar Box, Tomato Soup Can) to `/tmp/ycb`.
 ```bash
-ycbust --subset representative
+cargo install ycbust --features s3
 ```
 
-**Download to Custom Directory**
+Prebuilt binaries are also available on the [GitHub releases page](https://github.com/Agentic-Insights/ycbust/releases).
+
+## Quick Start
+
+The CLI uses subcommands. The default local output path is your OS temp directory plus `ycb`:
+
+- Linux/macOS: `/tmp/ycb`
+- Windows: `%TEMP%\ycb`
+
+Download the default TBP standard subset:
+
 ```bash
-ycbust -o ./my_ycb_data
+ycbust download
 ```
 
-**Download Full Dataset (All File Types)**
-Includes `berkeley_processed`, `google_16k`, etc.
+Download a quick 3-object smoke-test set:
+
 ```bash
-ycbust --full
+ycbust download --subset representative
 ```
 
-**Download 10 Objects**
+Download specific objects to a custom directory:
+
 ```bash
-ycbust --subset ten
+ycbust download --output-dir ./data/ycb --objects 006_mustard_bottle 011_banana
 ```
 
-**Download All Objects**
+Download all supported file types for the standard subset:
+
 ```bash
-ycbust --subset all
+ycbust download --full
 ```
 
-## CLI Options
+Validate a local dataset directory:
 
-```
-Usage: ycbust [OPTIONS]
-
-Options:
-  -o, --output-dir <OUTPUT_DIR>  Output directory [default: /tmp/ycb]
-  -s, --subset <SUBSET>          Subset to download [default: representative]
-                                 (representative, ten, all)
-      --overwrite                Overwrite existing files
-      --full                     Download all file types (default: google_16k only)
-  -h, --help                     Print help
+```bash
+ycbust validate --output-dir ./data/ycb --subset tbp-standard
 ```
 
-## Output Structure
+List the objects in a built-in subset:
 
-For each object, the tool creates a directory structure like this:
-
-```
-/output_dir/
-  ├── 003_cracker_box/
-  │   └── google_16k/
-  │       ├── textured.obj      <-- Main mesh for rendering
-  │       ├── texture_map.png   <-- Texture
-  │       └── ...
-  └── ...
+```bash
+ycbust list --subset tbp-similar
 ```
 
-## Integration with Bevy/Three-d
+Fetch the full upstream object list from YCB S3:
 
-For rendering, point your asset loader to the `google_16k/textured.obj` file. It will automatically pick up the material and texture map if they are in the same folder.
+```bash
+ycbust list --subset all --fetch
+```
+
+## Subsets
+
+- `representative`: 3 common objects for quick end-to-end checks
+- `tbp-standard`: the TBP standard 10-object benchmark set
+- `tbp-similar`: the TBP harder 10-object discrimination set
+- `all`: every object advertised by the YCB dataset index
+
+## Output Layout
+
+For a typical `google_16k` download, `ycbust` produces:
+
+```text
+<output-dir>/
+  003_cracker_box/
+    google_16k/
+      textured.obj
+      texture_map.png
+      textured.mtl
+      ...
+```
+
+For rendering workflows, point your asset loader at `google_16k/textured.obj`.
+
+## Library Usage
+
+The crate can also be used directly from Rust:
+
+```rust,no_run
+use std::path::Path;
+use ycbust::{download_ycb, DownloadOptions, Subset};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    download_ycb(
+        Subset::TbpStandard,
+        Path::new("./data/ycb"),
+        DownloadOptions::default(),
+    )
+    .await?;
+
+    Ok(())
+}
+```
+
+API docs: [docs.rs/ycbust](https://docs.rs/ycbust)
+
+## S3 Streaming
+
+With the `s3` feature enabled, downloads can be extracted directly into an S3 bucket:
+
+```bash
+ycbust download --output-dir s3://my-bucket/ycb --subset tbp-standard --region us-east-1
+```
+
+Use `--profile <name>` if you do not want to rely on the default AWS credential chain.
 
 ## Development
 
-This project uses `just` as a command runner.
+This repo uses `just` for common tasks:
 
 ```bash
-# List all available commands
-just
-
-# Build the project
-just build
-
-# Run all tests
 just test
-
-# Download sample data (representative subset) to /tmp/ycb-test
-just run-demo
+just test-s3
+just lint
+just lint-s3
+just ci
+just ci-s3
 ```
 
-## Development Posture
-
-- `ycbust` is a public crate and CLI, so docs and releases should stay useful to general Rust users.
-- If a downstream project discovers a YCB download, extraction, subset, or layout bug, the preferred fix is to land it here rather than carrying a consumer-side workaround.
-- Local path-based testing is fine during iteration, but downstream consumers should move back to released crate versions quickly.
-- Prefer small, verified releases over large bundled changes; this utility should ship often when fixes are ready.
+This is a public utility crate, so changes should stay small, general-purpose, and easy to verify.
