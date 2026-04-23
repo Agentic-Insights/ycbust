@@ -175,12 +175,16 @@ ycbust = { version = "0.4", features = ["blocking"] }
 ```rust,ignore
 use ycbust::blocking::download_objects_blocking;
 use ycbust::DownloadOptions;
+use std::path::Path;
 
-download_objects_blocking(
-    &["006_mustard_bottle"],
-    std::path::Path::new("./data/ycb"),
-    DownloadOptions::default(),
-)?;
+fn main() -> anyhow::Result<()> {
+    download_objects_blocking(
+        &["006_mustard_bottle"],
+        Path::new("./data/ycb"),
+        DownloadOptions::default(),
+    )?;
+    Ok(())
+}
 ```
 
 API docs: [docs.rs/ycbust](https://docs.rs/ycbust)
