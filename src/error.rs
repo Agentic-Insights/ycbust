@@ -65,6 +65,15 @@ pub enum YcbError {
     /// A wrapped error from a lower-level operation that doesn't fit a more
     /// specific variant. Prefer matching the concrete variants above; `Other`
     /// is the forward-compatibility escape hatch.
+    ///
+    /// # Nesting note
+    ///
+    /// Because `From<anyhow::Error> for YcbError` routes into this variant,
+    /// round-tripping a `YcbError` through `anyhow::Error` and back will
+    /// produce `Other(Other(...))`. This is intentional — the conversion
+    /// is lossy by design so the concrete variants above can't be silently
+    /// dropped. Callers who don't want the extra nesting should match on
+    /// concrete variants before converting to `anyhow::Error`.
     #[error("{0}")]
     Other(#[source] anyhow::Error),
 }

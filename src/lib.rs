@@ -586,6 +586,14 @@ async fn process_work_item(
     object: &str,
     file_type: &'static str,
 ) -> Result<WorkOutcome> {
+    // Fast paths first: if the extracted artifact is already on disk we can
+    // skip without a network round trip, even with `verify_integrity = true`.
+    // This matters for callers that keep `delete_archives = false` and for
+    // warm-cache `Subset::All` runs (up to 77 HEAD requests saved).
+    if !options.overwrite && local_artifact_exists(output_dir, object, file_type) {
+        return Ok(WorkOutcome::Skipped);
+    }
+
     let filename = format!("{}_{}.tgz", object, file_type);
     let dest_path = output_dir.join(&filename);
     let url = get_tgz_url(object, file_type);
@@ -612,9 +620,7 @@ async fn process_work_item(
         }
     }
 
-    if !options.overwrite
-        && (have_valid_archive || local_artifact_exists(output_dir, object, file_type))
-    {
+    if !options.overwrite && have_valid_archive {
         return Ok(WorkOutcome::Skipped);
     }
 
@@ -957,6 +963,37 @@ mod tests {
         };
         let result = download_objects(&["003_cracker_box"], dir.path(), options).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_download_objects_mesh_skip_bypasses_head_even_with_archive_present() {
+        // Regression guard: when both the archive and the extracted mesh are
+        // present, the mesh-exists check must short-circuit before the
+        // integrity HEAD request runs. If this test ever needs the network
+        // to pass, the skip ordering in process_work_item has regressed.
+        let dir = tempfile::tempdir().unwrap();
+        let object = "003_cracker_box";
+
+        // Stub archive (wrong size — would fail integrity if we ever hit it)
+        let archive_path = dir.path().join(format!("{object}_google_16k.tgz"));
+        let mut f = File::create(&archive_path).unwrap();
+        f.write_all(b"not a real archive").unwrap();
+
+        // Extracted mesh also present
+        let mesh_path = object_mesh_path(dir.path(), object);
+        fs::create_dir_all(mesh_path.parent().unwrap()).unwrap();
+        File::create(&mesh_path).unwrap();
+
+        let options = DownloadOptions {
+            show_progress: false,
+            verify_integrity: true,
+            ..DownloadOptions::default()
+        };
+        let result = download_objects(&[object], dir.path(), options).await;
+        assert!(result.is_ok());
+        // Mesh-skip wins — archive is left untouched since we never entered
+        // the integrity branch that would have deleted it.
+        assert!(archive_path.exists());
     }
 
     #[tokio::test]
