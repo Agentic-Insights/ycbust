@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/Agentic-Insights/ycbust/compare/v0.3.0...v0.3.1) - 2026-03-25
+
+### Other
+
+- make object path doctest platform agnostic
+- codify downstream ownership and release cadence
+- release v0.2.6
+
 ## [0.3.0](https://github.com/Agentic-Insights/ycbust/compare/v0.2.5...v0.3.0) - 2026-02-27
 
 ### Added
