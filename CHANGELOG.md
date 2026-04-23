@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/Agentic-Insights/ycbust/compare/v0.3.3...v0.4.0) - 2026-04-23
+
+### Added
+
+- [**breaking**] typed errors, parallel downloads, blocking wrappers, integrity check (v0.4.0) ([#26](https://github.com/Agentic-Insights/ycbust/pull/26))
+
+### Fixed
+
+- v0.4.0 pre-release review tweaks ([#28](https://github.com/Agentic-Insights/ycbust/pull/28))
+
 ## [0.3.3](https://github.com/Agentic-Insights/ycbust/compare/v0.3.2...v0.3.3) - 2026-04-23
 
 ### Added
