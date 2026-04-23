@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/Agentic-Insights/ycbust/compare/v0.4.0...v0.4.1) - 2026-04-23
+
+### Other
+
+- mirror bevy-sensor contract suite as upstream guard ([#31](https://github.com/Agentic-Insights/ycbust/pull/31))
+- tidy blocking-snippet in README; lock README snippets behind a compile test ([#29](https://github.com/Agentic-Insights/ycbust/pull/29))
+
 ## [0.4.0](https://github.com/Agentic-Insights/ycbust/compare/v0.3.3...v0.4.0) - 2026-04-23
 
 ### Added
