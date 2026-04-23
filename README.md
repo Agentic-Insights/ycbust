@@ -154,6 +154,17 @@ options.concurrency = 4;
 options.verify_integrity = false;
 ```
 
+### Performance note on `verify_integrity`
+
+When `verify_integrity = true` (default), each cached `.tgz` archive triggers
+one HEAD request on resume so the local size can be compared against the
+server-reported `Content-Length`. Archives whose extracted `google_16k` mesh
+is already on disk **do not** trigger a HEAD — the extracted artifact is the
+fast path. Set `verify_integrity = false` for offline-ish workflows or if
+you keep `delete_archives = false` and want to avoid a HEAD per object per
+run; the tradeoff is that a truncated archive from an interrupted run will
+look valid on the next pass.
+
 For non-async callers, enable the `blocking` feature and use the synchronous wrappers:
 
 ```toml
