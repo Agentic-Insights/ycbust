@@ -13,9 +13,7 @@
 - Validation helpers for checking that benchmark objects are fully present
 - Parallel downloads via `DownloadOptions::concurrency` (default 1)
 - `Content-Length` integrity check on resume (toggle via `verify_integrity`)
-- Typed `YcbError` enum so consumers can match on network / http / io / integrity / extraction failures
-- Optional `s3` feature for streaming extracted assets directly to S3
-- Optional `blocking` feature with sync wrappers for non-async callers
+- Typed `YcbError` enum so consumers can match on network / http / io / extraction failures
 
 ## Installation
 
@@ -23,12 +21,6 @@ Install the CLI from crates.io:
 
 ```bash
 cargo install ycbust
-```
-
-Install with S3 support:
-
-```bash
-cargo install ycbust --features s3
 ```
 
 Prebuilt binaries are also available on the [GitHub releases page](https://github.com/Agentic-Insights/ycbust/releases).
@@ -165,28 +157,6 @@ you keep `delete_archives = false` and want to avoid a HEAD per object per
 run; the tradeoff is that a truncated archive from an interrupted run will
 look valid on the next pass.
 
-For non-async callers, enable the `blocking` feature and use the synchronous wrappers:
-
-```toml
-[dependencies]
-ycbust = { version = "0.4", features = ["blocking"] }
-```
-
-```rust,ignore
-use ycbust::blocking::download_objects_blocking;
-use ycbust::DownloadOptions;
-use std::path::Path;
-
-fn main() -> anyhow::Result<()> {
-    download_objects_blocking(
-        &["006_mustard_bottle"],
-        Path::new("./data/ycb"),
-        DownloadOptions::default(),
-    )?;
-    Ok(())
-}
-```
-
 API docs: [docs.rs/ycbust](https://docs.rs/ycbust)
 
 ## Error handling
@@ -201,7 +171,6 @@ match download_objects(&["006_mustard_bottle"], std::path::Path::new("./data/ycb
     Ok(()) => {},
     Err(YcbError::Network(_)) | Err(YcbError::HttpStatus { .. }) => { /* retry */ },
     Err(YcbError::Io(_)) => { /* disk full, permissions, etc */ },
-    Err(YcbError::Integrity { .. }) => { /* re-download or alert */ },
     Err(other) => { eprintln!("{other}"); },
 }
 # }
@@ -209,27 +178,14 @@ match download_objects(&["006_mustard_bottle"], std::path::Path::new("./data/ycb
 
 `anyhow` users get `From<YcbError> for anyhow::Error` for free.
 
-## S3 Streaming
-
-With the `s3` feature enabled, downloads can be extracted directly into an S3 bucket:
-
-```bash
-ycbust download --output-dir s3://my-bucket/ycb --subset tbp-standard --region us-east-1
-```
-
-Use `--profile <name>` if you do not want to rely on the default AWS credential chain.
-
 ## Development
 
 This repo uses `just` for common tasks:
 
 ```bash
 just test
-just test-s3
 just lint
-just lint-s3
 just ci
-just ci-s3
 ```
 
 This is a public utility crate, so changes should stay small, general-purpose, and easy to verify.

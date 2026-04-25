@@ -5,21 +5,6 @@
 
 #![allow(clippy::let_underscore_future, dead_code, unused_imports)]
 
-// --- README §Library Usage: blocking example (rendered as ```rust,ignore```)
-#[cfg(feature = "blocking")]
-#[allow(dead_code)]
-fn readme_blocking_snippet() -> anyhow::Result<()> {
-    use ycbust::blocking::download_objects_blocking;
-    use ycbust::DownloadOptions;
-
-    download_objects_blocking(
-        &["006_mustard_bottle"],
-        std::path::Path::new("./data/ycb"),
-        DownloadOptions::default(),
-    )?;
-    Ok(())
-}
-
 // --- README §Error handling: match against YcbError variants
 #[allow(dead_code)]
 async fn readme_error_match_snippet() {
@@ -35,7 +20,6 @@ async fn readme_error_match_snippet() {
         Ok(()) => {}
         Err(YcbError::Network(_)) | Err(YcbError::HttpStatus { .. }) => { /* retry */ }
         Err(YcbError::Io(_)) => { /* disk full, permissions, etc */ }
-        Err(YcbError::Integrity { .. }) => { /* re-download or alert */ }
         Err(other) => {
             eprintln!("{other}");
         }
@@ -58,11 +42,6 @@ fn readme_snippets_compile() {
     // Pure compile-check — constructing the helpers above wires them into
     // the test binary. We intentionally don't execute them (they'd need
     // network access and a writable /data/ycb).
-    let _a: fn() -> anyhow::Result<()>;
-    #[cfg(feature = "blocking")]
-    {
-        _a = readme_blocking_snippet;
-    }
     let _b = readme_parallel_noverify_snippet;
     let _c = readme_error_match_snippet;
 }

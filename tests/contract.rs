@@ -86,10 +86,8 @@ fn contract_ycb_error_exhaustive_match_with_non_exhaustive_fallthrough() {
             YcbError::HttpStatus { .. } => "http",
             YcbError::Extraction { .. } => "extraction",
             YcbError::Io(_) => "io",
-            YcbError::Integrity { .. } => "integrity",
             YcbError::InvalidResponse(_) => "invalid_response",
             YcbError::UnsafeArchive(_) => "unsafe_archive",
-            YcbError::Other(_) => "other",
             // `#[non_exhaustive]` makes a wildcard required — that's the point.
             _ => "future_variant",
         }
@@ -103,13 +101,6 @@ fn contract_ycb_error_exhaustive_match_with_non_exhaustive_fallthrough() {
         "http"
     );
     assert_eq!(
-        matches_all(&YcbError::Integrity {
-            path: "x".into(),
-            reason: "y".into(),
-        }),
-        "integrity"
-    );
-    assert_eq!(
         matches_all(&YcbError::UnsafeArchive("..".into())),
         "unsafe_archive"
     );
@@ -117,28 +108,18 @@ fn contract_ycb_error_exhaustive_match_with_non_exhaustive_fallthrough() {
         matches_all(&YcbError::InvalidResponse("bad json".into())),
         "invalid_response"
     );
-    assert_eq!(
-        matches_all(&YcbError::Other(anyhow::anyhow!("wrapped"))),
-        "other"
-    );
 }
 
-// 6. Bidirectional `From` between `YcbError` and `anyhow::Error`.
-//    `YcbError -> anyhow::Error` keeps `?` working for anyhow callers.
-//    `anyhow::Error -> YcbError` (via `Other`) lets internal helpers
-//    that still use anyhow bubble up cleanly.
+// 6. `YcbError -> anyhow::Error` keeps `?` working for anyhow callers through
+//    anyhow's blanket `Error` conversion.
 #[test]
-fn contract_ycb_error_anyhow_round_trip() {
+fn contract_ycb_error_into_anyhow() {
     let original = YcbError::HttpStatus {
         status: 502,
         url: "https://example.com".into(),
     };
     let as_anyhow: anyhow::Error = original.into();
     assert!(as_anyhow.to_string().contains("502"));
-
-    let anyhow_err = anyhow::anyhow!("disk full");
-    let as_ycb: YcbError = anyhow_err.into();
-    assert!(matches!(as_ycb, YcbError::Other(_)));
 }
 
 // 7. `ycbust::Result<T>` alias is the same as `Result<T, YcbError>`.
@@ -150,19 +131,7 @@ fn contract_result_alias_equals_result_of_ycb_error() {
     }
 }
 
-// 8. Blocking wrapper signatures. Compile-only — guards the `(args, ...) -> Result<(), YcbError>`
-//    shape so a refactor of the `blocking` module can't silently change the surface.
-#[cfg(feature = "blocking")]
-#[test]
-fn contract_blocking_signatures() {
-    // Coerce to fn pointers with the exact expected signatures.
-    let _by_subset: fn(Subset, &Path, DownloadOptions) -> YcbResult<()> =
-        ycbust::blocking::download_ycb_blocking;
-    let _by_objects: fn(&[&str], &Path, DownloadOptions) -> YcbResult<()> =
-        ycbust::blocking::download_objects_blocking;
-}
-
-// Bonus — pin `download_objects` async signature. Compile-only: we never
+// 8. Pin `download_objects` async signature. Compile-only: we never
 // `.await` the future (would hit the network), but constructing it proves
 // the signature `(&[&str], &Path, DownloadOptions) -> impl Future<Output = Result<(), YcbError>>`
 // still holds.

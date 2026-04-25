@@ -11,11 +11,6 @@ keywords = ["ycb", "dataset", "3d", "robotics", "simulation"]
 categories = ["command-line-utilities", "science::robotics"]
 exclude = [".github", "target"]
 
-[features]
-default = []
-s3 = ["dep:rust-s3", "dep:async-compression", "dep:async-tar", "dep:tokio-util", "dep:pin-project-lite"]
-blocking = []
-
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
 reqwest = { version = "0.11", features = ["json", "stream"] }
@@ -28,13 +23,6 @@ tar = "0.4"
 futures-util = "0.3"
 anyhow = "1.0"
 thiserror = "1.0"
-
-# S3 streaming support (optional)
-rust-s3 = { version = "0.35", default-features = false, features = ["tokio-rustls-tls"], optional = true }
-async-compression = { version = "0.4", features = ["futures-io", "gzip"], optional = true }
-async-tar = { version = "0.5", optional = true }
-tokio-util = { version = "0.7", features = ["io", "compat"], optional = true }
-pin-project-lite = { version = "0.2", optional = true }
 
 [dev-dependencies]
 tempfile = "3.0"

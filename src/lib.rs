@@ -64,32 +64,8 @@
 //! }
 //! ```
 //!
-//! ## S3 Streaming (Optional Feature)
-//!
-//! With the `s3` feature enabled, you can stream YCB objects directly to an S3 bucket
-//! without local disk storage:
-//!
-//! ```no_run,ignore
-//! use ycbust::s3::{download_ycb_to_s3, S3Destination};
-//! use ycbust::{Subset, DownloadOptions};
-//!
-//! #[tokio::main]
-//! async fn main() -> anyhow::Result<()> {
-//!     let dest = S3Destination::from_url("s3://my-bucket/ycb-data/")?;
-//!     download_ycb_to_s3(Subset::Representative, dest, DownloadOptions::default(), None).await?;
-//!     Ok(())
-//! }
-//! ```
-
-// S3 streaming support (optional feature)
-#[cfg(feature = "s3")]
-pub mod s3;
-
 mod error;
 pub use error::{Result, YcbError};
-
-#[cfg(feature = "blocking")]
-pub mod blocking;
 
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -117,29 +93,6 @@ pub const GOOGLE_16K_TEXTURE_RELATIVE: &str = "google_16k/texture_map.png";
 /// Representative subset of 3 commonly used objects.
 pub const REPRESENTATIVE_OBJECTS: &[&str] =
     &["003_cracker_box", "004_sugar_box", "005_tomato_soup_can"];
-
-/// Subset of 10 commonly used objects.
-///
-/// # Deprecation
-///
-/// This constant does not correspond to any standard YCB benchmark.
-/// Use [`TBP_STANDARD_OBJECTS`] or [`TBP_SIMILAR_OBJECTS`] instead.
-#[deprecated(
-    since = "0.3.0",
-    note = "Use TBP_STANDARD_OBJECTS or TBP_SIMILAR_OBJECTS instead"
-)]
-pub const TEN_OBJECTS: &[&str] = &[
-    "003_cracker_box",
-    "004_sugar_box",
-    "005_tomato_soup_can",
-    "006_mustard_bottle",
-    "007_tuna_fish_can",
-    "008_pudding_box",
-    "009_gelatin_box",
-    "010_potted_meat_can",
-    "011_banana",
-    "019_pitcher_base",
-];
 
 /// TBP standard 10-object benchmark set (distinct objects).
 ///
@@ -185,9 +138,6 @@ pub enum Subset {
     /// 3 representative objects (default).
     #[default]
     Representative,
-    /// 10 miscellaneous objects (deprecated — not a standard benchmark set).
-    #[allow(deprecated)]
-    Ten,
     /// TBP standard 10-object benchmark set (distinct objects).
     ///
     /// The canonical set used by the Thousand Brains Project for standard accuracy benchmarks.
@@ -572,12 +522,6 @@ pub async fn download_ycb(
     download_objects(&refs, output_dir, options).await
 }
 
-/// Outcome for a single (object, file_type) work item.
-enum WorkOutcome {
-    Skipped,
-    Downloaded,
-}
-
 async fn process_work_item(
     client: &Client,
     output_dir: &Path,
@@ -585,13 +529,13 @@ async fn process_work_item(
     multi: Option<&MultiProgress>,
     object: &str,
     file_type: &'static str,
-) -> Result<WorkOutcome> {
+) -> Result<()> {
     // Fast paths first: if the extracted artifact is already on disk we can
     // skip without a network round trip, even with `verify_integrity = true`.
     // This matters for callers that keep `delete_archives = false` and for
     // warm-cache `Subset::All` runs (up to 77 HEAD requests saved).
     if !options.overwrite && local_artifact_exists(output_dir, object, file_type) {
-        return Ok(WorkOutcome::Skipped);
+        return Ok(());
     }
 
     let filename = format!("{}_{}.tgz", object, file_type);
@@ -621,16 +565,16 @@ async fn process_work_item(
     }
 
     if !options.overwrite && have_valid_archive {
-        return Ok(WorkOutcome::Skipped);
+        return Ok(());
     }
 
     if !url_exists(client, &url).await? {
-        return Ok(WorkOutcome::Skipped);
+        return Ok(());
     }
 
     download_file_inner(client, &url, &dest_path, options.show_progress, multi).await?;
     extract_tgz(&dest_path, output_dir, options.delete_archives)?;
-    Ok(WorkOutcome::Downloaded)
+    Ok(())
 }
 
 /// Downloads an arbitrary list of YCB objects by ID.
@@ -721,7 +665,6 @@ pub async fn download_objects(
 /// assert_eq!(all, None); // Requires network fetch
 /// ```
 pub fn get_subset_objects(subset: Subset) -> Option<Vec<String>> {
-    #[allow(deprecated)]
     match subset {
         Subset::Representative => Some(
             REPRESENTATIVE_OBJECTS
@@ -729,7 +672,6 @@ pub fn get_subset_objects(subset: Subset) -> Option<Vec<String>> {
                 .map(|s| s.to_string())
                 .collect(),
         ),
-        Subset::Ten => Some(TEN_OBJECTS.iter().map(|s| s.to_string()).collect()),
         Subset::TbpStandard => Some(TBP_STANDARD_OBJECTS.iter().map(|s| s.to_string()).collect()),
         Subset::TbpSimilar => Some(TBP_SIMILAR_OBJECTS.iter().map(|s| s.to_string()).collect()),
         Subset::All => None,
@@ -875,12 +817,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_subset_objects_ten() {
-        let objects = get_subset_objects(Subset::Ten);
-        assert_eq!(objects.unwrap().len(), 10);
-    }
-
-    #[test]
     fn test_get_subset_objects_tbp_standard() {
         let objects = get_subset_objects(Subset::TbpStandard);
         assert_eq!(objects.unwrap().len(), 10);
@@ -1019,25 +955,12 @@ mod tests {
     }
 
     #[test]
-    fn test_ycb_error_converts_to_and_from_anyhow() {
+    fn test_ycb_error_converts_to_anyhow() {
         let y = YcbError::HttpStatus {
             status: 404,
             url: "https://example.com".into(),
         };
         let a: anyhow::Error = y.into();
         assert!(a.to_string().contains("404"));
-
-        let a2 = anyhow::anyhow!("boom");
-        let y2: YcbError = a2.into();
-        assert!(matches!(y2, YcbError::Other(_)));
-    }
-
-    #[cfg(feature = "blocking")]
-    #[test]
-    fn test_blocking_download_objects_empty_slice() {
-        let dir = tempfile::tempdir().unwrap();
-        let result =
-            crate::blocking::download_objects_blocking(&[], dir.path(), DownloadOptions::default());
-        assert!(result.is_ok());
     }
 }

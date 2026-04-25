@@ -15,16 +15,11 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use reqwest::Client;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use ycbust::{
-    download_file, download_ycb, extract_tgz, fetch_objects, get_subset_objects, get_tgz_url,
-    object_mesh_path, url_exists, validate_objects, DownloadOptions, REPRESENTATIVE_OBJECTS,
-    TBP_SIMILAR_OBJECTS, TBP_STANDARD_OBJECTS,
+    download_objects, download_ycb, fetch_objects, get_subset_objects, validate_objects,
+    DownloadOptions, REPRESENTATIVE_OBJECTS, TBP_SIMILAR_OBJECTS, TBP_STANDARD_OBJECTS,
 };
-
-#[cfg(feature = "s3")]
-use ycbust::s3::{check_aws_credentials, download_ycb_to_s3, S3Destination};
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
 enum SubsetArg {
@@ -57,10 +52,6 @@ fn default_output_dir_string() -> String {
     default_output_dir_path().display().to_string()
 }
 
-fn local_artifact_exists(output_dir: &Path, object: &str, file_type: &str) -> bool {
-    matches!(file_type, "google_16k") && object_mesh_path(output_dir, object).exists()
-}
-
 #[derive(Parser, Debug)]
 #[command(
     author,
@@ -75,9 +66,9 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Download YCB objects to local disk or S3
+    /// Download YCB objects to local disk
     Download {
-        /// Output directory (or S3 URL with --features s3)
+        /// Output directory
         #[arg(short, long, default_value_t = default_output_dir_string())]
         output_dir: String,
 
@@ -100,14 +91,6 @@ enum Commands {
         /// Maximum concurrent per-object downloads (default 1)
         #[arg(long, default_value_t = 1)]
         concurrency: usize,
-
-        #[cfg(feature = "s3")]
-        #[arg(long)]
-        profile: Option<String>,
-
-        #[cfg(feature = "s3")]
-        #[arg(long, default_value = "us-east-1")]
-        region: String,
     },
 
     /// Validate that YCB objects are present and complete
@@ -142,33 +125,7 @@ async fn main() -> Result<()> {
             overwrite,
             full,
             concurrency,
-            #[cfg(feature = "s3")]
-            profile,
-            #[cfg(feature = "s3")]
-            region,
-        } => {
-            if output_dir.starts_with("s3://") {
-                #[cfg(feature = "s3")]
-                {
-                    return run_s3_download(
-                        output_dir,
-                        subset,
-                        overwrite,
-                        full,
-                        profile,
-                        region,
-                        concurrency,
-                    )
-                    .await;
-                }
-                #[cfg(not(feature = "s3"))]
-                anyhow::bail!(
-                    "S3 destination requires the 's3' feature.\n\
-                     Rebuild with: cargo install ycbust --features s3"
-                );
-            }
-            run_local_download(output_dir, subset, objects, overwrite, full, concurrency).await
-        }
+        } => run_local_download(output_dir, subset, objects, overwrite, full, concurrency).await,
 
         Commands::Validate { output_dir, subset } => run_validate(output_dir, subset),
 
@@ -191,40 +148,15 @@ async fn run_local_download(
     options.concurrency = concurrency;
 
     if !objects.is_empty() {
-        let client = Client::new();
-        fs::create_dir_all(&output_path).context("Failed to create output directory")?;
-        let file_types: &[&str] = if full {
-            &["berkeley_processed", "google_16k"]
-        } else {
-            &["google_16k"]
-        };
-
         println!(
             "Downloading {} object(s) to {}",
             objects.len(),
             output_path.display()
         );
-        for object in &objects {
-            for &file_type in file_types {
-                let dest_path = output_path.join(format!("{}_{}.tgz", object, file_type));
-                if !overwrite
-                    && (dest_path.exists()
-                        || local_artifact_exists(&output_path, object, file_type))
-                {
-                    println!("  ✓  {} ({}) already present", object, file_type);
-                    continue;
-                }
-
-                let url = get_tgz_url(object, file_type);
-                if !url_exists(&client, &url).await? {
-                    println!("  ⚠  {} ({}) not found, skipping", object, file_type);
-                    continue;
-                }
-                download_file(&client, &url, &dest_path, true).await?;
-                extract_tgz(&dest_path, &output_path, true)?;
-                println!("  ✓  {}", object);
-            }
-        }
+        let object_refs: Vec<&str> = objects.iter().map(String::as_str).collect();
+        download_objects(&object_refs, &output_path, options)
+            .await
+            .context("Failed to download requested objects")?;
         println!("\n✅ Done → {}", output_path.display());
         return Ok(());
     }
@@ -335,36 +267,4 @@ fn subset_cli_name(subset: SubsetArg) -> &'static str {
         SubsetArg::TbpSimilar => "tbp-similar",
         SubsetArg::All => "all",
     }
-}
-
-#[cfg(feature = "s3")]
-async fn run_s3_download(
-    output_url: String,
-    subset: Option<SubsetArg>,
-    overwrite: bool,
-    full: bool,
-    profile: Option<String>,
-    region: String,
-    concurrency: usize,
-) -> Result<()> {
-    let mut dest = S3Destination::from_url(&output_url)?;
-    dest = dest.with_region(&region);
-    println!("Checking AWS credentials...");
-    let identity = check_aws_credentials(profile.as_deref()).await?;
-    println!("{}", identity);
-    let mut options = DownloadOptions::default();
-    options.overwrite = overwrite;
-    options.full = full;
-    options.concurrency = concurrency;
-    let ycb_subset: ycbust::Subset = subset.unwrap_or(SubsetArg::TbpStandard).into();
-    println!("\nStreaming to S3...");
-    let stats = download_ycb_to_s3(ycb_subset, dest.clone(), options, profile.as_deref()).await?;
-    println!("\n✅ Done → {}", dest.to_url());
-    println!(
-        "   Uploaded: {} files ({:.1} MB)",
-        stats.files_uploaded,
-        stats.bytes_uploaded as f64 / 1_048_576.0
-    );
-    println!("   Skipped:  {} files", stats.files_skipped);
-    Ok(())
 }
