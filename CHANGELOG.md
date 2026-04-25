@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/Agentic-Insights/ycbust/compare/v0.4.1...v0.5.0) - 2026-04-25
+
+### Other
+
+- improve downloader hot path ([#34](https://github.com/Agentic-Insights/ycbust/pull/34))
+- simplify ycb downloader surface ([#32](https://github.com/Agentic-Insights/ycbust/pull/32))
+
 ### Changed
 
 - Removed the pre-download `HEAD` request for uncached objects; missing artifacts now skip on `404` from the `GET`.
