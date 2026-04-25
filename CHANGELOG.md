@@ -7,16 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Removed the pre-download `HEAD` request for uncached objects; missing artifacts now skip on `404` from the `GET`.
+- Buffered archive writes and avoid repeated output directory canonicalization during extraction.
+- Routed CLI `--objects` downloads through the shared library pipeline.
+
 ### Removed
 
 - Removed optional S3 streaming support to keep `ycbust` focused on local YCB acquisition.
 - Removed optional blocking wrappers; callers should use the async API or the CLI.
 - Removed the deprecated non-standard `Ten` subset.
 - Removed unused `YcbError::Integrity` and `YcbError::Other` variants.
-
-### Changed
-
-- Routed CLI `--objects` downloads through the shared library pipeline.
 
 ## [0.4.1](https://github.com/Agentic-Insights/ycbust/compare/v0.4.0...v0.4.1) - 2026-04-23
 
