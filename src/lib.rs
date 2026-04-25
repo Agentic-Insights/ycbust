@@ -72,7 +72,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
 use serde::Deserialize;
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 
 /// Base URL for the YCB dataset on S3.
@@ -358,7 +358,7 @@ async fn download_file_inner(
         None
     };
 
-    let mut file = File::create(dest_path)?;
+    let mut file = BufWriter::new(File::create(dest_path)?);
     let mut stream = res.bytes_stream();
 
     while let Some(item) = stream.next().await {
@@ -368,6 +368,8 @@ async fn download_file_inner(
             pb.inc(chunk.len() as u64);
         }
     }
+
+    file.flush()?;
 
     if let Some(pb) = pb {
         pb.finish_with_message("Done");
@@ -402,6 +404,11 @@ async fn download_file_inner(
 /// ```
 pub fn extract_tgz(tgz_path: &Path, output_dir: &Path, delete_archive: bool) -> Result<()> {
     let tgz_str = tgz_path.display().to_string();
+    fs::create_dir_all(output_dir)?;
+    let canonical_output = output_dir
+        .canonicalize()
+        .unwrap_or_else(|_| output_dir.to_path_buf());
+
     let tar_gz = File::open(tgz_path)?;
     let tar = flate2::read::GzDecoder::new(tar_gz);
     let mut archive = tar::Archive::new(tar);
@@ -429,9 +436,6 @@ pub fn extract_tgz(tgz_path: &Path, output_dir: &Path, delete_archive: bool) -> 
 
         let dest = output_dir.join(&path);
 
-        let canonical_output = output_dir
-            .canonicalize()
-            .unwrap_or_else(|_| output_dir.to_path_buf());
         if let Ok(canonical_dest) = dest.canonicalize() {
             if !canonical_dest.starts_with(&canonical_output) {
                 return Err(YcbError::UnsafeArchive(format!(
@@ -568,11 +572,12 @@ async fn process_work_item(
         return Ok(());
     }
 
-    if !url_exists(client, &url).await? {
-        return Ok(());
+    match download_file_inner(client, &url, &dest_path, options.show_progress, multi).await {
+        Ok(()) => {}
+        Err(YcbError::HttpStatus { status: 404, .. }) => return Ok(()),
+        Err(err) => return Err(err),
     }
 
-    download_file_inner(client, &url, &dest_path, options.show_progress, multi).await?;
     extract_tgz(&dest_path, output_dir, options.delete_archives)?;
     Ok(())
 }
