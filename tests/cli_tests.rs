@@ -12,14 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(deprecated)]
-
 use assert_cmd::Command;
 use predicates::prelude::*;
 
+fn ycbust_cmd() -> Command {
+    assert_cmd::cargo::cargo_bin_cmd!("ycbust")
+}
+
 #[test]
 fn test_cli_help() {
-    let mut cmd = Command::cargo_bin("ycbust").unwrap();
+    let mut cmd = ycbust_cmd();
     cmd.arg("--help");
     cmd.assert()
         .success()
@@ -30,7 +32,7 @@ fn test_cli_help() {
 
 #[test]
 fn test_cli_version() {
-    let mut cmd = Command::cargo_bin("ycbust").unwrap();
+    let mut cmd = ycbust_cmd();
     cmd.arg("--version");
     cmd.assert()
         .success()
@@ -39,7 +41,7 @@ fn test_cli_version() {
 
 #[test]
 fn test_cli_download_help() {
-    let mut cmd = Command::cargo_bin("ycbust").unwrap();
+    let mut cmd = ycbust_cmd();
     cmd.args(["download", "--help"]);
     cmd.assert()
         .success()
@@ -51,7 +53,7 @@ fn test_cli_download_help() {
 
 #[test]
 fn test_cli_validate_help() {
-    let mut cmd = Command::cargo_bin("ycbust").unwrap();
+    let mut cmd = ycbust_cmd();
     cmd.args(["validate", "--help"]);
     cmd.assert()
         .success()
@@ -61,7 +63,7 @@ fn test_cli_validate_help() {
 
 #[test]
 fn test_cli_list_help() {
-    let mut cmd = Command::cargo_bin("ycbust").unwrap();
+    let mut cmd = ycbust_cmd();
     cmd.args(["list", "--help"]);
     cmd.assert()
         .success()
@@ -71,7 +73,7 @@ fn test_cli_list_help() {
 
 #[test]
 fn test_cli_accepts_valid_subset_representative() {
-    let mut cmd = Command::cargo_bin("ycbust").unwrap();
+    let mut cmd = ycbust_cmd();
     cmd.args(["download", "--help"]);
     cmd.assert()
         .success()
@@ -82,7 +84,7 @@ fn test_cli_accepts_valid_subset_representative() {
 
 #[test]
 fn test_cli_accepts_output_dir_option() {
-    let mut cmd = Command::cargo_bin("ycbust").unwrap();
+    let mut cmd = ycbust_cmd();
     cmd.args(["download", "--help"]);
     cmd.assert()
         .success()
@@ -92,7 +94,7 @@ fn test_cli_accepts_output_dir_option() {
 
 #[test]
 fn test_cli_invalid_subcommand() {
-    let mut cmd = Command::cargo_bin("ycbust").unwrap();
+    let mut cmd = ycbust_cmd();
     cmd.arg("bogus");
     cmd.assert().failure();
 }
